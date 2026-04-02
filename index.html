@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>휴가 일기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=Gowun+Batang:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --rose:      #F2A7BE;
+  --rose-d:    #E07899;
+  --rose-dd:   #C05070;
+  --blush:     #FDF0F5;
+  --blush2:    #FAE3EE;
+  --blush3:    #F5C9DC;
+  --petal:     #FEFAFC;
+  --ink:       #2C1820;
+  --ink2:      #6B3F52;
+  --ink3:      #A87088;
+  --ink4:      #CCB0BB;
+  --white:     #FFFFFF;
+  --green:     #3D7A5F;
+  --gl:        #E4F3EC;
+  --amber:     #B87820;
+  --al:        #FDF3E0;
+  --blue:      #2A5080;
+  --bl:        #E4EFF8;
+  --red:       #C03040;
+  --rl:        #FDECEA;
+  --pur:       #6040A0;
+  --pl:        #EDE8F8;
+  --bdr:       rgba(44,24,32,0.1);
+  --bdr2:      rgba(44,24,32,0.18);
+  --sidebar-w: 224px;
+}
+
+html,body{height:100%;font-family:'Noto Sans KR',sans-serif;background:var(--blush);color:var(--ink);}
+.shell{display:flex;height:100vh;overflow:hidden;}
+
+/* ── SIDEBAR ── */
+.sidebar{
+  width:var(--sidebar-w);
+  background:var(--rose-dd);
+  display:flex;flex-direction:column;
+  padding:24px 0;flex-shrink:0;overflow-y:auto;
+}
+.logo{
+  padding:0 20px 28px;
+  display:flex;align-items:center;gap:10px;
+}
+.logo-mark{
+  width:34px;height:34px;
+  background:rgba(255,255,255,0.2);
+  border-radius:10px;
+  display:flex;align-items:center;justify-content:center;
+  font-family:'Gowun Batang',serif;
+  font-size:18px;color:white;font-weight:700;
+  letter-spacing:-1px;
+}
+.logo-text{
+  font-size:15px;font-weight:700;color:white;
+  font-family:'Gowun Batang',serif;
+  letter-spacing:.5px;line-height:1.2;
+}
+.logo-text small{font-size:10px;opacity:.65;font-weight:400;display:block;font-family:'Noto Sans KR',sans-serif;letter-spacing:0;}
+.nav-section{
+  font-size:9px;color:rgba(255,255,255,.35);font-weight:700;
+  letter-spacing:1px;text-transform:uppercase;
+  padding:16px 20px 5px;
+}
+.nav{flex:1;padding:0 10px;display:flex;flex-direction:column;gap:1px;}
+.nb{
+  width:100%;background:none;border:none;cursor:pointer;
+  display:flex;align-items:center;gap:9px;
+  padding:10px 12px;border-radius:9px;
+  color:rgba(255,255,255,.5);font-size:12.5px;font-weight:500;
+  font-family:'Noto Sans KR',sans-serif;
+  transition:all .15s;text-align:left;
+}
+.nb:hover{background:rgba(255,255,255,.12);color:rgba(255,255,255,.9);}
+.nb.active{background:rgba(255,255,255,.2);color:white;font-weight:700;}
+.nb.active .nb-icon{opacity:1;}
+.nb-icon{width:15px;height:15px;flex-shrink:0;opacity:.6;}
+.nb.active .nb-icon{opacity:1;}
+
+.sidebar-user{
+  padding:16px 18px 0;
+  border-top:1px solid rgba(255,255,255,.12);
+  margin-top:auto;
+}
+.su-sel{
+  width:100%;
+  background:rgba(255,255,255,.12);
+  border:1px solid rgba(255,255,255,.2);
+  border-radius:8px;padding:7px 10px;
+  font-size:11.5px;font-family:'Noto Sans KR',sans-serif;
+  color:white;cursor:pointer;margin-bottom:10px;
+}
+.su-sel option{background:var(--rose-dd);color:white;}
+.su-info{display:flex;align-items:center;gap:9px;}
+.av{
+  width:32px;height:32px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:10px;font-weight:700;color:white;flex-shrink:0;
+  border:2px solid rgba(255,255,255,.3);
+}
+.un{font-size:12px;font-weight:700;color:white;}
+.ur{font-size:10px;color:rgba(255,255,255,.45);margin-top:1px;}
+
+/* ── MAIN ── */
+.main{flex:1;padding:28px 32px;overflow-y:auto;background:var(--blush);}
+
+/* decorative top strip */
+.main::before{
+  content:'';display:block;
+  height:3px;
+  background:linear-gradient(90deg,var(--rose),var(--rose-d),var(--blush3),var(--rose));
+  border-radius:2px;margin-bottom:24px;
+  animation:shimmer 4s ease infinite alternate;
+}
+@keyframes shimmer{from{opacity:.6;}to{opacity:1;}}
+
+.view{display:none;animation:fd .25s ease;}
+.view.active{display:block;}
+@keyframes fd{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+
+/* ── PAGE HEADER ── */
+.ph{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;}
+.pt{font-size:22px;font-weight:900;letter-spacing:-.6px;color:var(--ink);}
+.ps{font-size:12px;color:var(--ink3);margin-top:3px;}
+
+/* ── BUTTONS ── */
+.btnp{
+  background:var(--rose-dd);color:white;border:none;
+  padding:10px 18px;border-radius:10px;
+  font-size:12.5px;font-weight:700;cursor:pointer;
+  display:flex;align-items:center;gap:6px;
+  font-family:'Noto Sans KR',sans-serif;transition:all .15s;
+}
+.btnp:hover{background:var(--rose-d);}
+.btnp svg{width:13px;height:13px;}
+.btng{
+  background:white;border:1.5px solid var(--bdr);
+  border-radius:9px;padding:9px 15px;
+  font-size:12px;font-weight:600;cursor:pointer;
+  font-family:'Noto Sans KR',sans-serif;color:var(--ink2);
+  transition:all .14s;
+}
+.btng:hover{background:var(--blush2);border-color:var(--rose);}
+
+/* ── STAT CARDS ── */
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:18px;}
+.sc{
+  background:white;border-radius:14px;
+  padding:14px 16px;
+  border:1.5px solid var(--blush3);
+  position:relative;overflow:hidden;
+}
+.sc::after{
+  content:'';position:absolute;top:-12px;right:-12px;
+  width:50px;height:50px;border-radius:50%;
+  background:var(--rose);opacity:.07;
+}
+.sc.acc{background:var(--rose-dd);border-color:var(--rose-dd);}
+.sc.acc .sl{color:rgba(255,255,255,.6);}
+.sc.acc .sv{color:white;}
+.sc.acc .ss{color:rgba(255,255,255,.45);}
+.sl{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--ink3);margin-bottom:6px;}
+.sv{font-size:28px;font-weight:900;letter-spacing:-1.2px;color:var(--ink);line-height:1;}
+.sv span{font-size:11px;font-weight:400;letter-spacing:0;margin-left:2px;}
+.ss{font-size:10.5px;color:var(--ink3);margin-top:3px;}
+
+/* ── CARDS ── */
+.card{
+  background:white;border-radius:14px;
+  border:1.5px solid var(--blush3);overflow:hidden;
+}
+.ch{
+  padding:13px 20px;border-bottom:1.5px solid var(--blush2);
+  display:flex;justify-content:space-between;align-items:center;
+}
+.cht{font-size:13px;font-weight:700;color:var(--ink);}
+
+/* ── YEAR TABS ── */
+.ytabs{display:flex;gap:5px;margin-bottom:14px;align-items:center;flex-wrap:wrap;}
+.yt{
+  background:white;border:1.5px solid var(--blush3);
+  border-radius:8px;padding:6px 13px;
+  font-size:11.5px;font-weight:600;cursor:pointer;color:var(--ink2);
+  font-family:'Noto Sans KR',sans-serif;transition:all .14s;
+}
+.yt:hover:not(.active){background:var(--blush2);border-color:var(--rose);}
+.yt.active{background:var(--rose-dd);color:white;border-color:var(--rose-dd);}
+.yt.add{color:var(--rose-dd);border-color:var(--rose);font-size:17px;padding:3px 12px;line-height:1;}
+
+/* ── CALENDAR ── */
+.calnav{
+  padding:12px 18px;border-bottom:1.5px solid var(--blush2);
+  display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;
+}
+.cmtitle{font-size:14px;font-weight:700;color:var(--ink);}
+.cnbtns{display:flex;gap:4px;}
+.cnb{
+  background:var(--blush2);border:none;border-radius:7px;
+  width:28px;height:28px;cursor:pointer;font-size:15px;
+  display:flex;align-items:center;justify-content:center;color:var(--ink2);
+}
+.cnb:hover{background:var(--blush3);}
+.leg{display:flex;gap:8px;flex-wrap:wrap;}
+.li{display:flex;align-items:center;gap:3px;font-size:10.5px;color:var(--ink2);}
+.ld{width:7px;height:7px;border-radius:2px;}
+.cbody{padding:14px 16px;}
+.cdh{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:3px;}
+.cdl{text-align:center;font-size:9.5px;font-weight:700;color:var(--ink3);padding:2px;}
+.cg{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;}
+.cc{
+  border-radius:7px;padding:5px 5px 4px;min-height:58px;
+  font-size:10.5px;background:var(--blush);cursor:pointer;
+  transition:background .1s;position:relative;
+}
+.cc:hover{background:var(--blush2);}
+.cc.emp{background:transparent;cursor:default;pointer-events:none;}
+.cc.tod{outline:2px solid var(--rose-dd);outline-offset:-2px;}
+.cc.vac{background:var(--bl);}
+.cc.vac .dn{color:var(--blue);}
+.cc.hol{background:var(--rl);}
+.cc.hol .dn{color:var(--red);}
+.cc.sub{background:var(--pl);}
+.cc.sub .dn{color:var(--pur);}
+.cc.ham,.cc.hpm,.cc.hhf{background:var(--al);}
+.cc.ham .dn,.cc.hpm .dn,.cc.hhf .dn{color:var(--amber);}
+.cc.wsun .dn{color:var(--red);}
+.cc.wsat .dn{color:var(--blue);}
+.dn{font-size:11.5px;font-weight:700;margin-bottom:2px;}
+.dtag{
+  font-size:8px;font-weight:700;padding:1px 4px;border-radius:3px;
+  display:block;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.tv{background:var(--blue);color:white;}
+.th{background:var(--red);color:white;}
+.tss{background:var(--pur);color:white;}
+.tam{background:var(--amber);color:white;}
+.thf{background:#8A5C10;color:white;}
+
+/* ── HISTORY ROWS ── */
+.hrow{
+  display:flex;align-items:center;padding:11px 18px;
+  border-bottom:1px solid var(--blush);gap:10px;
+}
+.hrow:last-child{border-bottom:none;}
+.hdate{font-size:11.5px;font-weight:700;color:var(--ink2);min-width:78px;}
+.htb{
+  font-size:10.5px;background:var(--blush2);padding:2px 8px;
+  border-radius:20px;font-weight:600;color:var(--ink2);white-space:nowrap;
+}
+.hreason{font-size:11.5px;color:var(--ink3);flex:1;}
+.bdg{font-size:9.5px;font-weight:700;padding:3px 8px;border-radius:20px;white-space:nowrap;}
+.bv{background:var(--bl);color:var(--blue);}
+.ba{background:var(--al);color:var(--amber);}
+.bp{background:var(--pl);color:var(--pur);}
+.ehi{padding:24px;text-align:center;font-size:12px;color:var(--ink4);}
+
+/* ── EMPLOYEE GRID ── */
+.emp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;}
+.emp-card{
+  background:white;border-radius:14px;
+  border:1.5px solid var(--blush3);padding:16px;
+  cursor:pointer;transition:all .14s;
+}
+.emp-card:hover{border-color:var(--rose);transform:translateY(-2px);}
+.emp-card.selected{border-color:var(--rose-dd);border-width:2px;}
+.emp-av-lg{
+  width:40px;height:40px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:700;color:white;margin-bottom:10px;
+  border:2px solid rgba(255,255,255,.4);
+}
+.emp-name{font-size:13px;font-weight:700;margin-bottom:2px;color:var(--ink);}
+.emp-dept{font-size:11px;color:var(--ink3);margin-bottom:10px;}
+.emp-bar{height:5px;background:var(--blush2);border-radius:3px;overflow:hidden;margin-bottom:4px;}
+.emp-fill{height:100%;background:var(--rose-d);border-radius:3px;transition:width .5s;}
+.emp-nums{display:flex;justify-content:space-between;font-size:10.5px;color:var(--ink3);}
+
+/* ── MANAGER TABLE ── */
+.tbl{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed;}
+.tbl th{
+  padding:9px 14px;text-align:left;
+  font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;
+  color:var(--ink3);background:var(--blush);border-bottom:1.5px solid var(--blush2);
+}
+.tbl td{padding:10px 14px;border-bottom:1px solid var(--blush);color:var(--ink2);vertical-align:middle;}
+.tbl tr:last-child td{border-bottom:none;}
+.tbl tr:hover td{background:var(--blush);}
+.tag{font-size:10px;font-weight:700;padding:3px 8px;border-radius:12px;}
+.tg{background:var(--gl);color:var(--green);}
+.ta{background:var(--al);color:var(--amber);}
+.tr{background:var(--rl);color:var(--red);}
+
+/* ── SETTINGS ── */
+.sep{height:1px;background:var(--blush2);margin:14px 0;}
+.yr-row{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+.yr-label{font-size:11.5px;color:var(--ink2);min-width:60px;font-weight:600;}
+.yr-input{
+  width:68px;border:1.5px solid var(--bdr);border-radius:7px;
+  padding:5px 8px;font-size:13px;font-family:'Noto Sans KR',sans-serif;
+  color:var(--ink);background:white;outline:none;text-align:center;
+  transition:border-color .13s;
+}
+.yr-input:focus{border-color:var(--rose-dd);}
+.accrual-table{width:100%;border-collapse:collapse;font-size:11.5px;}
+.accrual-table th{background:var(--blush);padding:7px 12px;font-weight:700;font-size:10px;color:var(--ink3);text-align:left;border-bottom:1.5px solid var(--blush2);}
+.accrual-table td{padding:7px 12px;border-bottom:1px solid var(--blush);}
+.accrual-table tr:last-child td{border-bottom:none;}
+.hint{background:var(--blush2);border-radius:8px;padding:9px 12px;font-size:11.5px;color:var(--ink2);margin-bottom:12px;border-left:3px solid var(--rose);}
+
+/* ── MODAL ── */
+.overlay{
+  display:none;position:fixed;inset:0;
+  background:rgba(44,24,32,.45);z-index:200;
+  align-items:flex-start;justify-content:center;padding-top:50px;
+}
+.overlay.open{display:flex;}
+.modal{
+  background:white;border-radius:18px;padding:26px;
+  width:380px;max-width:95vw;max-height:85vh;overflow-y:auto;
+  border:2px solid var(--blush3);
+}
+.mtt{font-size:16px;font-weight:900;margin-bottom:3px;color:var(--ink);}
+.mts{font-size:11.5px;color:var(--ink3);margin-bottom:18px;}
+.fg{margin-bottom:13px;}
+.fl{font-size:10.5px;font-weight:700;color:var(--ink2);margin-bottom:5px;display:block;}
+.fi,.fs,.fta{
+  width:100%;border:1.5px solid var(--bdr);border-radius:8px;
+  padding:9px 12px;font-size:13px;font-family:'Noto Sans KR',sans-serif;
+  color:var(--ink);background:white;outline:none;transition:border .13s;
+}
+.fi:focus,.fs:focus,.fta:focus{border-color:var(--rose-dd);}
+.fta{height:65px;resize:none;}
+.ma{display:flex;gap:8px;margin-top:18px;justify-content:flex-end;}
+.bts{
+  background:var(--rose-dd);border:none;border-radius:9px;
+  padding:9px 18px;font-size:12.5px;font-weight:700;cursor:pointer;
+  font-family:'Noto Sans KR',sans-serif;color:white;
+}
+.bts:hover{background:var(--rose-d);}
+.color-row{display:flex;gap:8px;margin-top:5px;flex-wrap:wrap;}
+.cp{width:24px;height:24px;border-radius:50%;cursor:pointer;border:3px solid transparent;transition:border-color .13s;}
+.cp.sel{border-color:var(--ink);}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="logo">
+    <div class="logo-mark">휴</div>
+    <div class="logo-text">휴가 일기<small>연차 관리 앱</small></div>
+  </div>
+  <nav class="nav">
+    <div class="nav-section">개인</div>
+    <button class="nb active" id="nav-cal" onclick="sw('cal')">
+      <svg class="nb-icon" viewBox="0 0 20 20" fill="currentColor"><path d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1z"/></svg>달력 보기
+    </button>
+    <button class="nb" id="nav-hist" onclick="sw('hist')">
+      <svg class="nb-icon" viewBox="0 0 20 20" fill="currentColor"><path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9zM4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5z"/></svg>사용 내역
+    </button>
+    <button class="nb" id="nav-set" onclick="sw('set')">
+      <svg class="nb-icon" viewBox="0 0 20 20" fill="currentColor"><path d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947z"/></svg>연차 설정
+    </button>
+    <div class="nav-section" style="margin-top:4px;">팀 관리</div>
+    <button class="nb" id="nav-emp" onclick="sw('emp')">
+      <svg class="nb-icon" viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>직원 목록
+    </button>
+    <button class="nb" id="nav-mgr" onclick="sw('mgr')">
+      <svg class="nb-icon" viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z"/></svg>전체 현황
+    </button>
+  </nav>
+  <div class="sidebar-user">
+    <select class="su-sel" id="emp-sel" onchange="changeEmp()"></select>
+    <div class="su-info">
+      <div class="av" id="sb-av" style="background:var(--rose-d)">HW</div>
+      <div><div class="un" id="sb-name">김휘원</div><div class="ur" id="sb-dept">구로센터</div></div>
+    </div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<main class="main">
+
+  <!-- 달력 -->
+  <div class="view active" id="view-cal">
+    <div class="ph">
+      <div><div class="pt" id="cal-heading">2026년 4월</div><div class="ps">날짜 클릭으로 기록 · 기록된 날 다시 클릭하면 삭제</div></div>
+      <div style="display:flex;gap:8px;">
+        <button class="btng" onclick="openMod('rec')">+ 연차 기록</button>
+        <button class="btnp" onclick="sw('set')">
+          <svg viewBox="0 0 20 20" fill="currentColor"><path d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947z"/></svg>연차 설정
+        </button>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="sc"><div class="sl">생성 연차</div><div class="sv" id="s-total">15<span>일</span></div><div class="ss" id="s-yr">2026년</div></div>
+      <div class="sc"><div class="sl">사용</div><div class="sv" style="color:var(--green)" id="s-used">0<span>일</span></div><div class="ss">연차+반차+반반차</div></div>
+      <div class="sc"><div class="sl">반차 횟수</div><div class="sv" style="color:var(--amber)" id="s-half">0<span>회</span></div><div class="ss">0.5 · 0.25일 차감</div></div>
+      <div class="sc"><div class="sl">공휴일</div><div class="sv" style="color:var(--red)" id="s-hol">0<span>일</span></div><div class="ss">이번 달</div></div>
+      <div class="sc acc"><div class="sl">잔여</div><div class="sv" id="s-rem">15<span>일</span></div><div class="ss">사용 가능</div></div>
+    </div>
+    <div class="ytabs" id="ytabs"></div>
+    <div class="card">
+      <div class="calnav">
+        <div style="display:flex;align-items:center;gap:9px;">
+          <div class="cnbtns">
+            <button class="cnb" onclick="pm()">&#8249;</button>
+            <button class="cnb" onclick="nm()">&#8250;</button>
+          </div>
+          <span class="cmtitle" id="mlabel"></span>
+        </div>
+        <div class="leg">
+          <div class="li"><div class="ld" style="background:var(--red)"></div>공휴일</div>
+          <div class="li"><div class="ld" style="background:var(--pur)"></div>대체</div>
+          <div class="li"><div class="ld" style="background:var(--blue)"></div>연차</div>
+          <div class="li"><div class="ld" style="background:var(--amber)"></div>반차/반반차</div>
+        </div>
+      </div>
+      <div class="cbody">
+        <div class="cdh">
+          <div class="cdl" style="color:var(--red)">일</div>
+          <div class="cdl">월</div><div class="cdl">화</div><div class="cdl">수</div><div class="cdl">목</div><div class="cdl">금</div>
+          <div class="cdl" style="color:var(--blue)">토</div>
+        </div>
+        <div class="cg" id="cg"></div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:14px;">
+      <div class="ch"><span class="cht" id="mh-title">이번 달 기록</span></div>
+      <div id="mh-body"></div>
+    </div>
+  </div>
+
+  <!-- 사용 내역 -->
+  <div class="view" id="view-hist">
+    <div class="ph">
+      <div><div class="pt">사용 내역</div><div class="ps">전체 연차 기록 확인 및 삭제</div></div>
+      <button class="btnp" onclick="openMod('rec')">+ 연차 기록</button>
+    </div>
+    <div class="ytabs" id="ytabs2"></div>
+    <div class="card">
+      <div class="ch"><span class="cht">전체 기록</span><span style="font-size:11px;color:var(--ink3)" id="all-cnt"></span></div>
+      <div id="all-body"></div>
+    </div>
+  </div>
+
+  <!-- 연차 설정 -->
+  <div class="view" id="view-set">
+    <div class="ph"><div><div class="pt">연차 설정</div><div class="ps">입사일 기반 자동 계산 + 연도별 수동 입력</div></div></div>
+    <div class="card" style="margin-bottom:14px;">
+      <div class="ch"><span class="cht">직원 선택</span></div>
+      <div style="padding:14px 18px;">
+        <div class="fg"><label class="fl">설정할 직원</label><select class="fs" id="set-emp-sel" onchange="onSetEmpChange()"></select></div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:14px;">
+      <div class="ch"><span class="cht">근속 정보 &amp; 연도별 연차 수동 설정</span></div>
+      <div style="padding:14px 18px;">
+        <div class="fg"><label class="fl">입사일</label><input type="date" class="fi" id="join-date" onchange="calcAccrual()"></div>
+        <div id="accrual-info"></div>
+        <div class="sep"></div>
+        <div style="font-size:11.5px;color:var(--ink3);margin-bottom:10px;">연도별로 직접 수정 가능합니다. 수동 입력값이 자동 계산보다 우선 적용돼요.</div>
+        <div id="yr-inputs"></div>
+        <button class="btng" style="margin-top:8px;font-size:11.5px;padding:7px 14px;" onclick="addYearInSet()">+ 연도 추가</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="ch"><span class="cht">근속년수별 연차 기준 (근로기준법)</span></div>
+      <div style="padding:12px 16px;">
+        <table class="accrual-table">
+          <thead><tr><th>근속기간</th><th>연간 연차</th><th>비고</th></tr></thead>
+          <tbody>
+            <tr><td>1년 미만</td><td>매월 1일 (최대 11일)</td><td>월 만근 시</td></tr>
+            <tr><td>1~2년</td><td>15일</td><td>기본</td></tr>
+            <tr><td>3~4년</td><td>16일</td><td>+1일</td></tr>
+            <tr><td>5~6년</td><td>17일</td><td>+1일</td></tr>
+            <tr><td>7~8년</td><td>18일</td><td>+1일</td></tr>
+            <tr><td>9~10년</td><td>19일</td><td>+1일</td></tr>
+            <tr><td>11~12년</td><td>20일</td><td>+1일</td></tr>
+            <tr><td>13~14년</td><td>21일</td><td>+1일</td></tr>
+            <tr><td>15~16년</td><td>22일</td><td>+1일</td></tr>
+            <tr><td>17~18년</td><td>23일</td><td>+1일</td></tr>
+            <tr><td>19~20년</td><td>24일</td><td>+1일</td></tr>
+            <tr><td>21년+</td><td>25일</td><td>상한선</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 직원 목록 -->
+  <div class="view" id="view-emp">
+    <div class="ph">
+      <div><div class="pt">직원 목록</div><div class="ps">카드 클릭 시 해당 직원 달력으로 이동</div></div>
+      <button class="btnp" onclick="openMod('emp')">+ 직원 추가</button>
+    </div>
+    <div class="emp-grid" id="emp-grid"></div>
+  </div>
+
+  <!-- 전체 현황 -->
+  <div class="view" id="view-mgr">
+    <div class="ph"><div><div class="pt">전체 현황</div><div class="ps">팀 전체 연차 사용 현황</div></div></div>
+    <div id="yr-filter" style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;"></div>
+    <div class="card">
+      <div class="ch"><span class="cht">직원별 현황</span></div>
+      <div style="overflow-x:auto;">
+        <table class="tbl">
+          <colgroup><col style="width:110px"><col style="width:80px"><col style="width:55px"><col style="width:55px"><col style="width:55px"><col style="width:60px"><col style="width:90px"><col style="width:130px"></colgroup>
+          <thead><tr><th>이름</th><th>부서</th><th>생성</th><th>사용</th><th>잔여</th><th>사용률</th><th>최근기록</th><th>관리</th></tr></thead>
+          <tbody id="mgr-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</main>
+</div>
+
+<!-- 모달 -->
+<div class="overlay" id="overlay" onclick="overlayClick(event)">
+  <div class="modal" id="modal-box"></div>
+</div>
+
+<script>
+/* ── 공휴일 (2026년 검증 완료) ── */
+const HOLS={
+  '2026-01-01':'신정','2026-02-14':'설 연휴','2026-02-15':'설 연휴','2026-02-16':'설날',
+  '2026-02-17':'설 연휴','2026-02-18':'대체공휴일','2026-03-01':'삼일절','2026-03-02':'대체공휴일',
+  '2026-05-01':'노동절','2026-05-05':'어린이날','2026-05-24':'부처님오신날','2026-05-25':'대체공휴일',
+  '2026-06-06':'현충일','2026-07-17':'제헌절','2026-08-15':'광복절','2026-08-17':'대체공휴일',
+  '2026-09-24':'추석 연휴','2026-09-25':'추석','2026-09-26':'추석 연휴',
+  '2026-10-03':'개천절','2026-10-05':'대체공휴일','2026-10-09':'한글날','2026-12-25':'성탄절'
+};
+const SUBS=new Set(['2026-02-18','2026-03-02','2026-05-25','2026-08-17','2026-10-05']);
+const ACOLS=['#C05070','#3D7A5F','#2A5080','#6040A0','#B87820','#C03040','#0F6E56','#5040A0'];
+
+/* ── 로컬스토리지 ── */
+function ld(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch{return d;}}
+function sv(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch{}}
+
+let employees=ld('vd_emps',[{id:'e1',name:'김휘원',dept:'구로센터',role:'간사',joinDate:'2022-03-01',color:'#C05070'}]);
+let records=ld('vd_recs',[]);
+let totals=ld('vd_tots',{});
+let curEmpId=employees[0]?.id||'e1';
+let curYear=2026,curMonth=3,mgrYear=2026;
+let setEmpId=curEmpId;
+let _pc=ACOLS[0];
+
+function emp(){return employees.find(e=>e.id===curEmpId)||employees[0];}
+function empById(id){return employees.find(e=>e.id===id);}
+function gk(y,m,d){return y+'-'+String(m+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');}
+
+function accrual(jd,yr){
+  if(!jd)return 15;
+  const join=new Date(jd),ref=new Date(yr,0,1);
+  if(ref<join)return 0;
+  const yrs=Math.floor((ref-join)/(1000*60*60*24*365.25));
+  if(yrs<1)return Math.min(Math.floor((ref-join)/(1000*60*60*24*30.44)),11);
+  if(yrs<=2)return 15;
+  return Math.min(15+Math.floor((yrs-1)/2),25);
+}
+
+function getTotal(eid,yr){
+  const k=eid+'_'+yr;
+  return totals[k]!==undefined?totals[k]:accrual(empById(eid)?.joinDate,yr);
+}
+
+function calcStats(eid,yr){
+  const recs=records.filter(r=>r.empId===eid&&r.date.startsWith(yr+''));
+  let days=0,hc=0;
+  recs.forEach(r=>{
+    if(r.type==='연차')days+=1;
+    else if(r.type==='반차-오전'||r.type==='반차-오후'){days+=0.5;hc++;}
+    else if(r.type==='반반차-오전'||r.type==='반반차-오후'){days+=0.25;hc++;}
+  });
+  const total=getTotal(eid,yr);
+  return{total,used:parseFloat(days.toFixed(2)),halfCnt:hc,remain:parseFloat((total-days).toFixed(2))};
+}
+
+function initYears(){
+  const s=new Set([2026]);
+  records.forEach(r=>{const y=parseInt(r.date.slice(0,4));if(y>=2026)s.add(y);});
+  Object.keys(totals).forEach(k=>{const y=parseInt(k.split('_')[1]);if(y>=2026)s.add(y);});
+  return[...s].sort();
+}
+
+/* ── SIDEBAR ── */
+function updateSidebar(){
+  const e=emp();if(!e)return;
+  document.getElementById('emp-sel').innerHTML=
+    employees.map(x=>'<option value="'+x.id+'"'+(x.id===curEmpId?' selected':'')+'>'+x.name+'</option>').join('');
+  document.getElementById('sb-av').textContent=e.name.slice(0,2);
+  document.getElementById('sb-av').style.background=e.color||'#C05070';
+  document.getElementById('sb-name').textContent=e.name;
+  document.getElementById('sb-dept').textContent=e.dept;
+}
+function changeEmp(){
+  curEmpId=document.getElementById('emp-sel').value;
+  curYear=2026;curMonth=3;updateSidebar();render();
+}
+
+/* ── ROUTING ── */
+function sw(v){
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.nb').forEach(x=>x.classList.remove('active'));
+  document.getElementById('view-'+v).classList.add('active');
+  const nb=document.getElementById('nav-'+v);if(nb)nb.classList.add('active');
+  if(v==='set')renderSet();
+  if(v==='emp')renderEmpGrid();
+  if(v==='mgr')renderMgr();
+  if(v==='hist'){buildYtabs2();renderAllHist();}
+}
+
+/* ── YEAR TABS ── */
+function buildYtabs(cid,fn){
+  const c=document.getElementById(cid);if(!c)return;
+  const yrs=initYears();
+  c.innerHTML=yrs.map(y=>'<button class="yt'+(y===curYear?' active':'')+'" onclick="'+fn+'('+y+')">'+y+'년</button>').join('')
+    +'<button class="yt add" onclick="addYear()">+</button>';
+}
+function buildYtabs2(){buildYtabs('ytabs2','switchYearHist');}
+function switchYear(y){curYear=y;curMonth=0;render();}
+function switchYearHist(y){curYear=y;renderAllHist();}
+function addYear(){
+  const yrs=initYears();curYear=yrs[yrs.length-1]+1;curMonth=0;render();
+}
+function addYearInSet(){
+  const yrs=initYears();const next=yrs[yrs.length-1]+1;
+  const k=setEmpId+'_'+next;
+  if(totals[k]===undefined){totals[k]=accrual(empById(setEmpId)?.joinDate,next);sv('vd_tots',totals);}
+  renderSetYearInputs();
+}
+
+/* ── STATS ── */
+function updateStats(){
+  const s=calcStats(curEmpId,curYear);
+  document.getElementById('s-total').innerHTML=s.total+'<span>일</span>';
+  document.getElementById('s-used').innerHTML=s.used+'<span>일</span>';
+  document.getElementById('s-half').innerHTML=s.halfCnt+'<span>회</span>';
+  document.getElementById('s-yr').textContent=curYear+'년';
+  document.getElementById('s-rem').innerHTML=s.remain+'<span>일</span>';
+  const ms=curYear+'-'+String(curMonth+1).padStart(2,'0');
+  document.getElementById('s-hol').innerHTML=Object.keys(HOLS).filter(k=>k.startsWith(ms)).length+'<span>일</span>';
+}
+
+/* ── CALENDAR ── */
+function buildCal(){
+  const g=document.getElementById('cg');
+  document.getElementById('mlabel').textContent=(curMonth+1)+'월';
+  document.getElementById('cal-heading').textContent=curYear+'년 '+(curMonth+1)+'월';
+  document.getElementById('mh-title').textContent=(curMonth+1)+'월 기록';
+  const fd=new Date(curYear,curMonth,1).getDay();
+  const dim=new Date(curYear,curMonth+1,0).getDate();
+  const today=new Date();
+  let html='';
+  for(let i=0;i<fd;i++)html+='<div class="cc emp"></div>';
+  for(let d=1;d<=dim;d++){
+    const key=gk(curYear,curMonth,d);
+    const dow=(fd+d-1)%7;
+    const isHol=!!HOLS[key],isSub=SUBS.has(key);
+    const recs=records.filter(r=>r.empId===curEmpId&&r.date===key);
+    const isVac=recs.some(r=>r.type==='연차');
+    const isHam=recs.some(r=>r.type==='반차-오전');
+    const isHpm=recs.some(r=>r.type==='반차-오후');
+    const isQam=recs.some(r=>r.type==='반반차-오전');
+    const isQpm=recs.some(r=>r.type==='반반차-오후');
+    const isToday=today.getFullYear()===curYear&&today.getMonth()===curMonth&&today.getDate()===d;
+    let cls='cc';
+    if(isVac)cls+=' vac';
+    else if(isHam||isQam)cls+=' ham';
+    else if(isHpm||isQpm)cls+=' hpm';
+    else if(isSub)cls+=' sub';
+    else if(isHol)cls+=' hol';
+    else if(dow===0)cls+=' wsun';
+    else if(dow===6)cls+=' wsat';
+    if(isToday)cls+=' tod';
+    let tags='';
+    if(isHol&&!isSub)tags+='<span class="dtag th">'+HOLS[key]+'</span>';
+    else if(isSub)tags+='<span class="dtag tss">대체</span>';
+    if(isVac)tags+='<span class="dtag tv">연차</span>';
+    if(isHam)tags+='<span class="dtag tam">오전반차</span>';
+    if(isHpm)tags+='<span class="dtag tam">오후반차</span>';
+    if(isQam)tags+='<span class="dtag thf">오전반반차</span>';
+    if(isQpm)tags+='<span class="dtag thf">오후반반차</span>';
+    html+='<div class="'+cls+'" onclick="clickDay(\''+key+'\','+dow+')"><div class="dn">'+d+'</div>'+tags+'</div>';
+  }
+  g.innerHTML=html;
+  buildMonthHist();
+}
+
+function pm(){if(curMonth===0){curMonth=11;curYear--;}else curMonth--;render();}
+function nm(){if(curMonth===11){curMonth=0;curYear++;}else curMonth++;render();}
+
+function tLabel(t){return{연차:'연차(1일)','반차-오전':'반차 오전(0.5)','반차-오후':'반차 오후(0.5)','반반차-오전':'반반차 오전(0.25)','반반차-오후':'반반차 오후(0.25)'}[t]||t;}
+function tDelta(t){return t==='연차'?'1일':t.startsWith('반반')?'0.25일':'0.5일';}
+function tBdg(t){return t==='연차'?'bv':t.startsWith('반반')?'bp':'ba';}
+
+function hrow(r){
+  return '<div class="hrow">'
+    +'<div class="hdate">'+r.date+'</div>'
+    +'<div class="htb">'+tLabel(r.type)+'</div>'
+    +'<div class="hreason">'+(r.memo||'—')+'</div>'
+    +'<span class="bdg '+tBdg(r.type)+'">'+tDelta(r.type)+'</span>'
+    +'<button class="btng" style="padding:3px 10px;font-size:11px;" onclick="delRec(\''+r.id+'\')">삭제</button>'
+    +'</div>';
+}
+
+function buildMonthHist(){
+  const ms=curYear+'-'+String(curMonth+1).padStart(2,'0');
+  const recs=records.filter(r=>r.empId===curEmpId&&r.date.startsWith(ms)).sort((a,b)=>a.date.localeCompare(b.date));
+  document.getElementById('mh-body').innerHTML=recs.length?recs.map(hrow).join(''):'<div class="ehi">이번 달 기록이 없습니다 🌸</div>';
+}
+
+function renderAllHist(){
+  const sorted=records.filter(r=>r.empId===curEmpId&&r.date.startsWith(curYear+'')).sort((a,b)=>b.date.localeCompare(a.date));
+  document.getElementById('all-cnt').textContent='총 '+sorted.length+'건';
+  document.getElementById('all-body').innerHTML=sorted.length?sorted.map(hrow).join(''):'<div class="ehi">기록이 없습니다 🌸</div>';
+}
+
+function clickDay(key,dow){
+  const exist=records.filter(r=>r.empId===curEmpId&&r.date===key);
+  if(exist.length){
+    if(confirm(key+'\n기록된 '+exist.length+'건을 삭제할까요?')){
+      records=records.filter(r=>!(r.empId===curEmpId&&r.date===key));
+      sv('vd_recs',records);render();
+    }
+    return;
+  }
+  const isWe=dow===0||dow===6,isHol=!!HOLS[key];
+  if((isWe||isHol)&&!confirm((isHol?HOLS[key]:'주말')+'에 연차를 기록할까요?'))return;
+  document.getElementById('req-date').value=key;
+  openMod('rec');
+}
+
+function delRec(id){
+  if(!confirm('삭제할까요?'))return;
+  records=records.filter(r=>r.id!==id);
+  sv('vd_recs',records);render();
+  if(document.getElementById('view-hist').classList.contains('active'))renderAllHist();
+}
+
+/* ── SETTINGS ── */
+function renderSet(){
+  const sel=document.getElementById('set-emp-sel');
+  sel.innerHTML=employees.map(e=>'<option value="'+e.id+'"'+(e.id===setEmpId?' selected':'')+'>'+e.name+'</option>').join('');
+  const e=empById(setEmpId)||employees[0];
+  if(e){setEmpId=e.id;document.getElementById('join-date').value=e.joinDate||'';calcAccrual();}
+}
+function onSetEmpChange(){
+  setEmpId=document.getElementById('set-emp-sel').value;
+  document.getElementById('join-date').value=empById(setEmpId)?.joinDate||'';
+  calcAccrual();
+}
+function calcAccrual(){
+  const jd=document.getElementById('join-date').value;
+  if(setEmpId&&jd){employees=employees.map(e=>e.id===setEmpId?{...e,joinDate:jd}:e);sv('vd_emps',employees);}
+  const cont=document.getElementById('accrual-info');
+  if(!jd){cont.innerHTML='';renderSetYearInputs();return;}
+  const yrs=Math.floor((new Date()-new Date(jd))/(1000*60*60*24*365.25));
+  cont.innerHTML='<div class="hint">근속 약 '+yrs+'년 → '+curYear+'년 기준 <strong>'+accrual(jd,curYear)+'일</strong> 자동 계산</div>';
+  renderSetYearInputs();
+}
+function renderSetYearInputs(){
+  const e=empById(setEmpId);if(!e)return;
+  const yrs=initYears();
+  document.getElementById('yr-inputs').innerHTML=yrs.map(y=>{
+    const auto=accrual(e.joinDate,y);
+    const k=e.id+'_'+y;
+    const cur=totals[k]!==undefined?totals[k]:auto;
+    return '<div class="yr-row">'
+      +'<span class="yr-label">'+y+'년</span>'
+      +'<input type="number" class="yr-input" value="'+cur+'" min="0" max="50" onchange="setTotal(\''+e.id+'\','+y+',this.value)">'
+      +'<span style="font-size:11px;color:var(--ink3);">일 &nbsp;(자동 '+auto+'일)</span>'
+      +'</div>';
+  }).join('');
+}
+function setTotal(eid,yr,val){
+  totals[eid+'_'+yr]=parseFloat(val)||0;
+  sv('vd_tots',totals);updateStats();
+  if(document.getElementById('view-emp').classList.contains('active'))renderEmpGrid();
+  if(document.getElementById('view-mgr').classList.contains('active'))renderMgr();
+}
+
+/* ── EMPLOYEES ── */
+function renderEmpGrid(){
+  document.getElementById('emp-grid').innerHTML=employees.map(e=>{
+    const s=calcStats(e.id,curYear);
+    const pct=s.total>0?Math.min(100,Math.round((s.used/s.total)*100)):0;
+    return '<div class="emp-card'+(e.id===curEmpId?' selected':'')+'" onclick="selectEmp(\''+e.id+'\')">'
+      +'<div class="emp-av-lg" style="background:'+(e.color||'#C05070')+'">'+e.name.slice(0,2)+'</div>'
+      +'<div class="emp-name">'+e.name+'</div>'
+      +'<div class="emp-dept">'+e.dept+(e.role?' · '+e.role:'')+'</div>'
+      +'<div class="emp-bar"><div class="emp-fill" style="width:'+pct+'%"></div></div>'
+      +'<div class="emp-nums"><span>'+s.used+'/'+s.total+'일</span><span>잔여 '+s.remain+'일</span></div>'
+      +'</div>';
+  }).join('');
+}
+function selectEmp(id){curEmpId=id;updateSidebar();sw('cal');}
+
+/* ── MANAGER ── */
+function renderMgr(){
+  const yrs=initYears();
+  document.getElementById('yr-filter').innerHTML=yrs.map(y=>'<button class="yt'+(y===mgrYear?' active':'')+'" onclick="mgrYr('+y+')">'+y+'년</button>').join('');
+  document.getElementById('mgr-body').innerHTML=employees.map(e=>{
+    const s=calcStats(e.id,mgrYear);
+    const pct=s.total>0?Math.round((s.used/s.total)*100):0;
+    const last=records.filter(r=>r.empId===e.id&&r.date.startsWith(mgrYear+'')).sort((a,b)=>b.date.localeCompare(a.date))[0]?.date||'—';
+    const tc=pct>=80?'tr':pct>=50?'ta':'tg';
+    return '<tr>'
+      +'<td><div style="display:flex;align-items:center;gap:7px;"><div class="av" style="width:24px;height:24px;font-size:9px;background:'+(e.color||'#C05070')+'">'+e.name.slice(0,2)+'</div>'+e.name+'</div></td>'
+      +'<td style="color:var(--ink3)">'+e.dept+'</td>'
+      +'<td>'+s.total+'</td><td>'+s.used+'</td>'
+      +'<td style="font-weight:700;color:var(--rose-dd)">'+s.remain+'</td>'
+      +'<td><span class="tag '+tc+'">'+pct+'%</span></td>'
+      +'<td style="color:var(--ink3);font-size:11px">'+last+'</td>'
+      +'<td style="display:flex;gap:4px;">'
+      +'<button class="btng" style="padding:4px 9px;font-size:11px;" onclick="selectEmp(\''+e.id+'\')">상세</button>'
+      +'<button class="btng" style="padding:4px 9px;font-size:11px;color:var(--red);" onclick="delEmp(\''+e.id+'\')">삭제</button>'
+      +'</td></tr>';
+  }).join('');
+}
+function mgrYr(y){mgrYear=y;renderMgr();}
+function delEmp(id){
+  const e=empById(id);
+  if(!confirm((e?.name||'직원')+'을(를) 삭제할까요?\n관련 기록도 모두 삭제됩니다.'))return;
+  employees=employees.filter(x=>x.id!==id);
+  records=records.filter(r=>r.empId!==id);
+  if(curEmpId===id)curEmpId=employees[0]?.id||'';
+  sv('vd_emps',employees);sv('vd_recs',records);
+  updateSidebar();renderMgr();
+}
+
+/* ── MODALS ── */
+function openMod(type){
+  const box=document.getElementById('modal-box');
+  if(type==='rec'){
+    box.innerHTML='<div class="mtt">연차 기록</div>'
+      +'<div class="mts">사용한 연차·반차·반반차를 기록해요</div>'
+      +'<div class="fg"><label class="fl">직원</label>'
+      +'<select class="fs" id="m-emp">'+employees.map(e=>'<option value="'+e.id+'"'+(e.id===curEmpId?' selected':'')+'>'+e.name+'</option>').join('')+'</select></div>'
+      +'<div class="fg"><label class="fl">날짜</label><input type="date" class="fi" id="req-date"></div>'
+      +'<div class="fg"><label class="fl">유형</label>'
+      +'<select class="fs" id="req-type">'
+      +'<option value="연차">연차 (1일 차감)</option>'
+      +'<option value="반차-오전">반차 오전 (0.5일 차감)</option>'
+      +'<option value="반차-오후">반차 오후 (0.5일 차감)</option>'
+      +'<option value="반반차-오전">반반차 오전 (0.25일 차감)</option>'
+      +'<option value="반반차-오후">반반차 오후 (0.25일 차감)</option>'
+      +'</select></div>'
+      +'<div class="fg"><label class="fl">메모 (선택)</label><textarea class="fta" id="req-memo" placeholder="병원 방문, 개인 사유..."></textarea></div>'
+      +'<div class="ma"><button class="btng" onclick="closeMod()">취소</button><button class="bts" onclick="submitRec()">저장</button></div>';
+  } else if(type==='emp'){
+    box.innerHTML='<div class="mtt">직원 추가</div>'
+      +'<div class="mts">새 직원 정보를 입력해 주세요</div>'
+      +'<div class="fg"><label class="fl">이름</label><input class="fi" id="e-name" placeholder="예: 이민지"></div>'
+      +'<div class="fg"><label class="fl">부서</label><input class="fi" id="e-dept" placeholder="예: 구로센터"></div>'
+      +'<div class="fg"><label class="fl">직책</label><input class="fi" id="e-role" placeholder="예: 간사"></div>'
+      +'<div class="fg"><label class="fl">입사일</label><input type="date" class="fi" id="e-join"></div>'
+      +'<div class="fg"><label class="fl">아바타 색상</label>'
+      +'<div class="color-row" id="cpicks">'
+      +ACOLS.map((c,i)=>'<div class="cp'+(i===0?' sel':'')+'" style="background:'+c+'" onclick="pickColor(\''+c+'\',this)"></div>').join('')
+      +'</div></div>'
+      +'<div class="ma"><button class="btng" onclick="closeMod()">취소</button><button class="bts" onclick="submitEmp()">추가</button></div>';
+    _pc=ACOLS[0];
+  }
+  document.getElementById('overlay').classList.add('open');
+}
+function closeMod(){document.getElementById('overlay').classList.remove('open');}
+function overlayClick(e){if(e.target===document.getElementById('overlay'))closeMod();}
+function pickColor(c,el){
+  _pc=c;
+  document.querySelectorAll('.cp').forEach(x=>x.classList.remove('sel'));
+  el.classList.add('sel');
+}
+function submitRec(){
+  const eid=document.getElementById('m-emp').value;
+  const date=document.getElementById('req-date').value;
+  const type=document.getElementById('req-type').value;
+  const memo=document.getElementById('req-memo').value.trim();
+  if(!date){alert('날짜를 선택해 주세요.');return;}
+  if(records.find(r=>r.empId===eid&&r.date===date)){alert('이미 기록된 날짜입니다.');return;}
+  records.push({id:Date.now()+'',empId:eid,date,type,memo});
+  sv('vd_recs',records);
+  const[y,m]=date.split('-');
+  curEmpId=eid;curYear=parseInt(y);curMonth=parseInt(m)-1;
+  updateSidebar();closeMod();render();
+}
+function submitEmp(){
+  const name=document.getElementById('e-name').value.trim();
+  const dept=document.getElementById('e-dept').value.trim();
+  const role=document.getElementById('e-role').value.trim();
+  const join=document.getElementById('e-join').value;
+  if(!name){alert('이름을 입력해 주세요.');return;}
+  const id='e'+Date.now();
+  employees.push({id,name,dept,role,joinDate:join,color:_pc});
+  sv('vd_emps',employees);
+  curEmpId=id;setEmpId=id;updateSidebar();closeMod();sw('emp');
+}
+
+/* ── RENDER ── */
+function render(){
+  buildYtabs('ytabs','switchYear');
+  updateStats();buildCal();
+}
+
+updateSidebar();render();
+</script>
+</body>
+</html>
