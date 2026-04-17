@@ -322,21 +322,29 @@ function initializeSelections() {
 function renderAll() {
   renderNavigation();
   renderSidebar();
-  renderDashboard();
-  renderCalendarView();
-  renderHistory();
-  renderSettings();
-  renderEmployees();
-  renderSubLeaves();
-  renderSpecialLeaves();
-  renderOfficeView();
-  renderHrView();
-  renderDataHub();
-  renderErpView();
-  renderPermissions();
-  renderManager();
-  renderSyncPage();
+  renderActiveView();
   renderSyncStatus();
+}
+
+function renderActiveView() {
+  const viewRenderers = {
+    dashboard: renderDashboard,
+    cal: renderCalendarView,
+    hist: renderHistory,
+    set: renderSettings,
+    emp: renderEmployees,
+    mgr: renderManager,
+    sub: renderSubLeaves,
+    spe: renderSpecialLeaves,
+    office: renderOfficeView,
+    hr: renderHrView,
+    datahub: renderDataHub,
+    erp: renderErpView,
+    perm: renderPermissions,
+    sync: renderSyncPage
+  };
+  const renderer = viewRenderers[ui.activeView] || renderDashboard;
+  renderer();
 }
 
 function renderNavigation() {
@@ -987,6 +995,7 @@ function switchView(view) {
   document.querySelectorAll(".view").forEach((section) => section.classList.remove("active"));
   document.getElementById(`view-${view}`)?.classList.add("active");
   renderNavigation();
+  renderActiveView();
 }
 
 function confirmAdminAccess() {
