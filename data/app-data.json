@@ -1,0 +1,35 @@
+{
+  "version": 2,
+  "updatedAt": "2026-04-17T15:30:00+09:00",
+  "repo": {
+    "owner": "kittycong",
+    "name": "guro_huga",
+    "branch": "main",
+    "dataPath": "data/app-data.json"
+  },
+  "settings": {
+    "warningMonth": 10,
+    "expiryRiskDays": 3,
+    "promotionMinDays": 5,
+    "promotionMaxUsagePercent": 40
+  },
+  "employees": [
+    {
+      "id": "e1",
+      "name": "김휘원",
+      "dept": "구로센터",
+      "role": "간사",
+      "joinDate": "2022-03-01",
+      "color": "#c75272"
+    }
+  ],
+  "records": [],
+  "totals": {},
+  "subLeaves": [],
+  "perms": {
+    "e1": {
+      "grade": "admin",
+      "menus": {}
+    }
+  }
+}
