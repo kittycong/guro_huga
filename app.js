@@ -1006,6 +1006,14 @@ function confirmAdminAccess() {
   return btoa(unescape(encodeURIComponent(input))) === savedHash;
 }
 
+function confirmAdminAccess() {
+  const savedHash = localStorage.getItem(STORAGE_KEYS.adminPw);
+  if (!savedHash) return true;
+  const input = window.prompt("권한 관리 화면 비밀번호를 입력해 주세요.");
+  if (!input) return false;
+  return btoa(unescape(encodeURIComponent(input))) === savedHash;
+}
+
 function renderYearTabs(containerId, selectedYear, onClick) {
   document.getElementById(containerId).innerHTML = allYears().map((year) => `
     <button class="year-tab ${selectedYear === year ? "active" : ""}" type="button" data-year="${year}">${year}년</button>
