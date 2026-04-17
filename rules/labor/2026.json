@@ -1,0 +1,31 @@
+{
+  "year": 2026,
+  "effectiveFrom": "2026-01-01",
+  "effectiveTo": "2026-12-31",
+  "summary": "서울시 사회복지시설 기준 운영용 연도별 룰 템플릿",
+  "rules": {
+    "leave": {
+      "birthdayHalfDay": {
+        "defaultDays": 0.5,
+        "grantBase": "month_start",
+        "minTenureMonths": 3,
+        "oncePerYear": true
+      }
+    },
+    "payroll": {
+      "taxMode": [
+        "hometax",
+        "manual"
+      ],
+      "note": "세율 값은 관리자 UI에서 갱신하고 변경 전/후 시뮬레이션을 수행"
+    },
+    "compliance": {
+      "mandatoryEducation": [
+        "직장 내 성희롱 예방",
+        "장애인 인식개선",
+        "개인정보보호",
+        "산업안전보건"
+      ]
+    }
+  }
+}

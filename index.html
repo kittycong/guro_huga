@@ -375,6 +375,198 @@
         </div>
       </section>
 
+      <section class="view" id="view-office">
+        <div class="page-head">
+          <div>
+            <div class="page-title">전체 사무실 직원현황</div>
+            <div class="page-sub">부서/직책/연차/특별휴가/대체휴가를 한 번에 보는 운영 현황 화면입니다.</div>
+          </div>
+        </div>
+        <div id="office-kpis" class="kpi-grid four"></div>
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">사무실 통합 현황</div>
+            <div class="card-meta" id="office-count"></div>
+          </div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>직원</th>
+                  <th>부서</th>
+                  <th>직책</th>
+                  <th>연차 잔여</th>
+                  <th>특별휴가 잔여</th>
+                  <th>대체휴가 잔여</th>
+                  <th>최근 휴가 기록</th>
+                </tr>
+              </thead>
+              <tbody id="office-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-hr">
+        <div class="page-head">
+          <div>
+            <div class="page-title">년도별 인사정보 등록</div>
+            <div class="page-sub">전체 직원 인사정보를 연도별로 등록하고, 엑셀 업로드/다운로드를 지원합니다.</div>
+          </div>
+          <div class="head-actions">
+            <button class="btn ghost" data-action="import-hr-excel">인사정보 엑셀 업로드</button>
+            <button class="btn primary" data-action="export-hr-excel">인사정보 엑셀 다운로드</button>
+          </div>
+        </div>
+        <div class="year-tabs" id="hr-year-tabs"></div>
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">인사정보 입력</div>
+            <div class="card-meta">생년월일/개인정보는 관리자만 수정 가능</div>
+          </div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>직원</th>
+                  <th>부서</th>
+                  <th>직책</th>
+                  <th>입사일</th>
+                  <th>승호월</th>
+                  <th>승진월</th>
+                  <th>경력(년)</th>
+                  <th>자격사항</th>
+                  <th>근무형태</th>
+                  <th>상태</th>
+                  <th>생년월일(관리자)</th>
+                  <th>개인정보 메모(관리자)</th>
+                </tr>
+              </thead>
+              <tbody id="hr-body"></tbody>
+            </table>
+          </div>
+          <div class="card-body">
+            <button class="btn primary" data-action="save-hr-info">인사정보 저장</button>
+          </div>
+        </div>
+
+        <div class="layout-two">
+          <div class="card">
+            <div class="card-head">
+              <div class="card-title">서울시 사회복지시설 기준 템플릿</div>
+              <div class="card-meta">기준값은 편집 가능</div>
+            </div>
+            <div class="card-body stacked-fields">
+              <label class="field-label" for="welfare-rule-name">기준명</label>
+              <input id="welfare-rule-name" class="field" type="text">
+              <label class="field-label" for="welfare-weekly-hours">주당 기준 근로시간</label>
+              <input id="welfare-weekly-hours" class="field" type="number" min="1" max="80">
+              <label class="field-label" for="welfare-retirement-note">퇴직금 기준 메모</label>
+              <textarea id="welfare-retirement-note" class="field" rows="3"></textarea>
+              <label class="field-label" for="welfare-education-note">법정의무교육 기준 메모</label>
+              <textarea id="welfare-education-note" class="field" rows="3"></textarea>
+              <div class="button-row">
+                <button class="btn ghost small" data-action="apply-welfare-template">서울시 템플릿 불러오기</button>
+                <button class="btn primary small" data-action="save-welfare-template">기준 저장</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <div class="card-title">급여/세무/퇴직금 관리</div>
+              <div class="card-meta">연도별 통합 입력</div>
+            </div>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>직원</th>
+                    <th>직급</th>
+                    <th>급수</th>
+                    <th>호봉</th>
+                    <th>월 기본급</th>
+                    <th>세금모드</th>
+                    <th>수동세율(%)</th>
+                    <th>원천세</th>
+                    <th>4대보험(월)</th>
+                    <th>퇴직금 추정</th>
+                    <th>의무교육 이수</th>
+                  </tr>
+                </thead>
+                <tbody id="payroll-body"></tbody>
+              </table>
+            </div>
+            <div class="card-body">
+              <button class="btn primary" data-action="save-payroll-info">급여/세무 저장</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">직급/급수/호봉 임금 테이블</div>
+            <div class="card-meta">자동임금 계산식에서 사용</div>
+          </div>
+          <div class="card-body stacked-fields">
+            <div class="button-row">
+              <button class="btn ghost small" data-action="add-pay-grade-row">테이블 행 추가</button>
+              <button class="btn primary small" data-action="save-pay-grade-table">임금 테이블 저장</button>
+            </div>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>직급</th>
+                    <th>급수</th>
+                    <th>호봉</th>
+                    <th>월 기본급</th>
+                    <th>삭제</th>
+                  </tr>
+                </thead>
+                <tbody id="pay-grade-body"></tbody>
+              </table>
+            </div>
+            <label class="field-label" for="hometax-rate">홈택스 기준 세율(%)</label>
+            <input id="hometax-rate" class="field" type="number" min="0" max="100" step="0.01">
+            <label class="field-label" for="local-tax-rate">지방소득세 가산비율(%)</label>
+            <input id="local-tax-rate" class="field" type="number" min="0" max="100" step="0.01">
+            <div class="hint-box">자동모드 세금 = 월기본급 × (홈택스 세율 + 홈택스 세율×지방소득세 가산비율)</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">생년월일 ↔ 생일반차 자동부여 / 법령 룰 엔진</div>
+            <div class="card-meta">연도별 룰파일 기반</div>
+          </div>
+          <div class="card-body stacked-fields">
+            <label class="field-label" for="birthday-grant-rule">부여 기준</label>
+            <select id="birthday-grant-rule" class="field">
+              <option value="month_start">생일월 1일</option>
+              <option value="birthday">생일 당일</option>
+            </select>
+            <label class="field-label" for="birthday-grant-days">부여 일수</label>
+            <input id="birthday-grant-days" class="field" type="number" min="0.5" step="0.5">
+            <label class="field-label" for="birthday-min-months">최소 근속 개월수</label>
+            <input id="birthday-min-months" class="field" type="number" min="0" step="1">
+            <div class="button-row">
+              <button class="btn ghost small" data-action="save-birthday-rule">생일반차 규칙 저장</button>
+              <button class="btn primary small" data-action="run-birthday-grant">선택 연도 자동부여 실행</button>
+            </div>
+            <label class="field-label" for="labor-rule-year">활성 법령 룰 연도</label>
+            <select id="labor-rule-year" class="field">
+              <option value="2026">2026</option>
+            </select>
+            <div class="button-row">
+              <button class="btn ghost small" data-action="load-labor-rule">룰파일 불러오기</button>
+              <button class="btn primary small" data-action="activate-labor-rule">올해 룰 활성화</button>
+            </div>
+            <div id="labor-rule-log" class="log-box">룰 로드/시뮬레이션 결과가 표시됩니다.</div>
+          </div>
+        </div>
+      </section>
+
       <section class="view" id="view-perm">
         <div class="page-head">
           <div>
@@ -400,6 +592,10 @@
                   <th>전체현황</th>
                   <th>대체휴가</th>
                   <th>특별휴가</th>
+                  <th>사무실현황</th>
+                  <th>인사정보</th>
+                  <th>데이터허브</th>
+                  <th>ERP구조</th>
                   <th>동기화</th>
                 </tr>
               </thead>
@@ -555,6 +751,76 @@
             </div>
           </div>
         </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">배포 보존 스냅샷</div>
+            <div class="card-meta">최근 30건 자동 보존</div>
+          </div>
+          <div class="card-body stacked-fields">
+            <div class="button-row">
+              <button class="btn ghost small" data-action="download-current-snapshot">현재 데이터 다운로드</button>
+              <button class="btn primary small" data-action="restore-last-snapshot">최근 스냅샷 복원</button>
+            </div>
+            <div id="snapshot-log" class="log-box">스냅샷 로그가 여기에 표시됩니다.</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-datahub">
+        <div class="page-head">
+          <div>
+            <div class="page-title">카테고리별 엑셀 입출력</div>
+            <div class="page-sub">모든 메뉴 데이터를 카테고리 단위로 엑셀 다운로드/업로드할 수 있습니다.</div>
+          </div>
+          <div class="head-actions">
+            <button class="btn ghost" data-action="import-category-excel">카테고리 엑셀 업로드</button>
+            <button class="btn primary" data-action="export-category-excel">카테고리 엑셀 다운로드</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-body stacked-fields">
+            <label class="field-label" for="category-select">카테고리 선택</label>
+            <select id="category-select" class="field">
+              <option value="employees">직원 목록</option>
+              <option value="records">연차/사용 내역</option>
+              <option value="subLeaves">대체휴가</option>
+              <option value="specialLeaves">특별휴가</option>
+              <option value="hrRecords">인사/급여/세무</option>
+              <option value="perms">권한 관리</option>
+            </select>
+            <div class="hint-box">업로드 시 선택한 카테고리 데이터만 교체합니다.</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-erp">
+        <div class="page-head">
+          <div>
+            <div class="page-title">ERP형 확장 구조</div>
+            <div class="page-sub">인사/근태/급여/노무/리스크 모듈을 단계적으로 운영합니다.</div>
+          </div>
+        </div>
+        <div class="layout-two">
+          <div class="card">
+            <div class="card-head"><div class="card-title">인사기본</div></div>
+            <div class="stack-list compact" id="erp-hr-core"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><div class="card-title">근태·휴가</div></div>
+            <div class="stack-list compact" id="erp-attendance"></div>
+          </div>
+        </div>
+        <div class="layout-two">
+          <div class="card">
+            <div class="card-head"><div class="card-title">급여·세무</div></div>
+            <div class="stack-list compact" id="erp-payroll"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><div class="card-title">노무·컴플라이언스 / 리스크·감사</div></div>
+            <div class="stack-list compact" id="erp-compliance"></div>
+          </div>
+        </div>
       </section>
     </main>
   </div>
@@ -575,6 +841,8 @@
   <script src="./app.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <input id="excel-import-input" type="file" accept=".xlsx,.xls" hidden>
+  <input id="hr-excel-import-input" type="file" accept=".xlsx,.xls" hidden>
+  <input id="category-excel-import-input" type="file" accept=".xlsx,.xls" hidden>
   <input id="backup-import-hidden" type="file" accept=".json" hidden>
 </body>
 </html>
