@@ -1,0 +1,43 @@
+{
+  "version": 2,
+  "updatedAt": "2026-04-17T15:30:00+09:00",
+  "repo": {
+    "owner": "kittycong",
+    "name": "guro_huga",
+    "branch": "main",
+    "dataPath": "data/app-data.json"
+  },
+  "settings": {
+    "warningMonth": 10,
+    "expiryRiskDays": 3,
+    "promotionMinDays": 5,
+    "promotionMaxUsagePercent": 40,
+    "monthlyStandardHours": 209,
+    "defaultWorkHoursPerDay": 8,
+    "employmentRules": "1. 회계년도 기준 연차는 설정된 시작 월을 기준으로 계산합니다.\n2. 입사일 기준 자동 계산값이 기본값이며, 연도별 일수는 수동으로 조정할 수 있습니다.\n3. 대체휴가는 관리자가 부여하며 사용 차감은 개별 이력으로 관리합니다.\n4. 퇴사 정산 계산은 내부 참고용이며 실제 급여 정산 전 인사/노무 검토가 필요합니다.\n5. 퇴사자 발생 시 미사용 연차와 1일 정산 단가를 함께 확인합니다."
+  },
+  "employees": [
+    {
+      "id": "e1",
+      "name": "김휘원",
+      "dept": "구로센터",
+      "role": "간사",
+      "joinDate": "2022-03-01",
+      "color": "#c75272",
+      "fiscalYearMonth": 1,
+      "resignationDate": "",
+      "monthlyBasePay": 0,
+      "workHoursPerDay": 8,
+      "leaveUnitPrice": 0
+    }
+  ],
+  "records": [],
+  "totals": {},
+  "subLeaves": [],
+  "perms": {
+    "e1": {
+      "grade": "admin",
+      "menus": {}
+    }
+  }
+}

@@ -97,13 +97,18 @@ function bindStaticEvents() {
     if (action === "open-record-modal") openRecordModal();
     if (action === "open-employee-modal") openEmployeeModal();
     if (action === "open-subleave-modal") openSubLeaveModal();
+    if (action === "open-bulk-subleave-modal") openBulkSubLeaveModal();
     if (action === "open-settings-view") switchView("set");
     if (action === "close-modal") closeModal();
     if (action === "prev-month") moveMonth(-1);
     if (action === "next-month") moveMonth(1);
     if (action === "add-setting-year") addSettingYear();
+    if (action === "save-settings") saveSettingsFromView();
+    if (action === "reset-settings") renderSettings();
     if (action === "save-token") saveToken();
     if (action === "clear-token") clearToken();
+    if (action === "export-excel") exportExcelSnapshot();
+    if (action === "import-excel") document.getElementById("excel-import-input").click();
     if (action === "save-now") await saveSharedNow();
     if (action === "reload-shared" || action === "refresh-remote") await reloadFromRemote();
   });
@@ -115,14 +120,6 @@ function bindStaticEvents() {
 
   document.getElementById("set-emp-sel").addEventListener("change", (event) => {
     ui.settingsEmployeeId = event.target.value;
-    renderSettings();
-  });
-
-  document.getElementById("join-date").addEventListener("change", (event) => {
-    const employee = employeeById(ui.settingsEmployeeId);
-    if (!employee) return;
-    employee.joinDate = event.target.value;
-    touchState("입사일 수정");
     renderSettings();
   });
 
@@ -141,6 +138,8 @@ function bindStaticEvents() {
   document.getElementById("modal-overlay").addEventListener("click", (event) => {
     if (event.target.id === "modal-overlay") closeModal();
   });
+
+  document.getElementById("excel-import-input").addEventListener("change", importExcelSnapshot);
 }
 
 async function loadInitialState() {
@@ -191,7 +190,10 @@ function normalizeState() {
     warningMonth: 10,
     expiryRiskDays: 3,
     promotionMinDays: 5,
-    promotionMaxUsagePercent: 40
+    promotionMaxUsagePercent: 40,
+    monthlyStandardHours: 209,
+    defaultWorkHoursPerDay: 8,
+    employmentRules: defaultEmploymentRules()
   }, state.settings || {});
   state.employees = Array.isArray(state.employees) ? state.employees : [];
   state.records = Array.isArray(state.records) ? state.records : [];
@@ -212,6 +214,11 @@ function normalizeState() {
 
   state.employees.forEach((employee, index) => {
     employee.color = employee.color || COLORS[index % COLORS.length];
+    employee.fiscalYearMonth = Number(employee.fiscalYearMonth || 1);
+    employee.resignationDate = employee.resignationDate || "";
+    employee.monthlyBasePay = Number(employee.monthlyBasePay || 0);
+    employee.workHoursPerDay = Number(employee.workHoursPerDay || state.settings.defaultWorkHoursPerDay || 8);
+    employee.leaveUnitPrice = Number(employee.leaveUnitPrice || 0);
     if (!state.perms[employee.id]) {
       state.perms[employee.id] = {
         grade: index === 0 ? "admin" : "normal",
@@ -364,15 +371,22 @@ function renderSettings() {
     .join("");
 
   document.getElementById("join-date").value = selected.joinDate || "";
+  document.getElementById("fiscal-year-month").value = String(selected.fiscalYearMonth || 1);
+  document.getElementById("resignation-date").value = selected.resignationDate || "";
+  document.getElementById("monthly-base-pay").value = selected.monthlyBasePay || "";
+  document.getElementById("work-hours-per-day").value = selected.workHoursPerDay || state.settings.defaultWorkHoursPerDay || 8;
+  document.getElementById("monthly-standard-hours").value = state.settings.monthlyStandardHours || 209;
+  document.getElementById("leave-unit-price").value = selected.leaveUnitPrice || "";
+  document.getElementById("employment-rules").value = state.settings.employmentRules || defaultEmploymentRules();
   const years = allYears();
-  const auto = accrual(selected.joinDate, ui.currentYear);
+  const auto = accrual(selected.joinDate, ui.currentYear, selected.fiscalYearMonth);
   document.getElementById("accrual-hint").textContent = selected.joinDate
-    ? `${selected.name}님의 ${ui.currentYear}년 자동 계산 연차는 ${auto}일입니다.`
+    ? `${selected.name}님의 ${ui.currentYear}년 자동 계산 연차는 ${auto}일입니다. 회계년도 시작 월은 ${selected.fiscalYearMonth || 1}월입니다.`
     : "입사일을 입력하면 자동 계산 기준이 표시됩니다.";
 
   document.getElementById("year-inputs").innerHTML = years.map((year) => {
     const value = getTotal(selected.id, year);
-    const autoValue = accrual(selected.joinDate, year);
+    const autoValue = accrual(selected.joinDate, year, selected.fiscalYearMonth);
     return `
       <div>
         <label class="field-label">${year}년</label>
@@ -382,15 +396,15 @@ function renderSettings() {
     `;
   }).join("");
 
-  document.querySelectorAll("[data-total-emp]").forEach((input) => {
-    input.addEventListener("change", (event) => {
-      const empId = event.target.dataset.totalEmp;
-      const year = event.target.dataset.totalYear;
-      state.totals[`${empId}_${year}`] = Number(event.target.value) || 0;
-      touchState("연도별 연차 수정");
-      renderAll();
-    });
-  });
+  const settlement = calcRetirementPayout(selected.id, ui.currentYear);
+  document.getElementById("settlement-summary").innerHTML = `
+    <div class="calc-result">
+      <div>잔여 연차: <strong>${settlement.remainingDays.toFixed(2)}일</strong></div>
+      <div>계산식: ${settlement.formula}</div>
+      <div class="calc-amount">${settlement.amount.toLocaleString("ko-KR")}원</div>
+      <div class="row-desc">${settlement.note}</div>
+    </div>
+  `;
 }
 
 function renderEmployees() {
@@ -459,7 +473,10 @@ function renderSubLeaves() {
         <div class="sub-value">${subBalance(employee.id).toFixed(1)}일</div>
         <div class="row-desc">현재 사용 가능한 대체휴가</div>
       </div>
-      <button class="btn primary small" type="button" data-action="open-subleave-modal">부여 / 사용</button>
+      <div class="sub-balance-actions">
+        <button class="btn ghost small" type="button" data-action="open-bulk-subleave-modal">일괄 부여</button>
+        <button class="btn primary small" type="button" data-action="open-subleave-modal">부여 / 사용</button>
+      </div>
     </div>
   `;
 
@@ -897,6 +914,49 @@ function openSubLeaveModal() {
   document.getElementById("sub-save-btn").addEventListener("click", saveSubLeaveFromModal);
 }
 
+function openBulkSubLeaveModal() {
+  openModal("대체휴가 일괄 부여", "여러 직원을 체크해서 같은 일수와 날짜로 한 번에 부여합니다.", `
+    <div class="hint-box">일괄 기능은 부여 전용입니다. 사용 차감은 기존 개별 입력으로 관리해 주세요.</div>
+    <label class="field-label">부여할 직원</label>
+    <div class="stacked-fields">
+      ${state.employees.map((employee) => `
+        <label class="checkbox-row">
+          <input type="checkbox" data-bulk-emp="${employee.id}" ${employee.id === ui.subEmployeeId ? "checked" : ""}>
+          <span>${employee.name} · ${employee.dept || "부서 미지정"}</span>
+        </label>
+      `).join("")}
+    </div>
+    <div class="button-row">
+      <button class="btn ghost small" type="button" id="bulk-select-all">전체 선택</button>
+      <button class="btn ghost small" type="button" id="bulk-clear-all">선택 해제</button>
+    </div>
+    <label class="field-label">일수</label>
+    <input id="bulk-sub-days" class="field" type="number" min="0.5" step="0.5" value="1">
+    <label class="field-label">날짜</label>
+    <input id="bulk-sub-date" class="field" type="date" value="${formatDateKey(new Date())}">
+    <label class="field-label">메모</label>
+    <textarea id="bulk-sub-memo" class="field" rows="3" placeholder="예: 공휴일 근무 보상"></textarea>
+    <div class="button-row">
+      <button class="btn ghost" type="button" data-action="close-modal">취소</button>
+      <button class="btn primary" type="button" id="bulk-sub-save-btn">일괄 부여 저장</button>
+    </div>
+  `);
+
+  document.getElementById("bulk-select-all").addEventListener("click", () => {
+    document.querySelectorAll("[data-bulk-emp]").forEach((input) => {
+      input.checked = true;
+    });
+  });
+
+  document.getElementById("bulk-clear-all").addEventListener("click", () => {
+    document.querySelectorAll("[data-bulk-emp]").forEach((input) => {
+      input.checked = false;
+    });
+  });
+
+  document.getElementById("bulk-sub-save-btn").addEventListener("click", saveBulkSubLeaveFromModal);
+}
+
 function saveSubLeaveFromModal() {
   const empId = document.getElementById("sub-emp").value;
   const type = document.getElementById("sub-type").value;
@@ -913,6 +973,35 @@ function saveSubLeaveFromModal() {
   state.subLeaves.push({ id: `s${Date.now()}`, empId, type, days, date, memo });
   ui.subEmployeeId = empId;
   touchState("대체휴가 저장");
+  closeModal();
+  renderAll();
+}
+
+function saveBulkSubLeaveFromModal() {
+  const employeeIds = Array.from(document.querySelectorAll("[data-bulk-emp]:checked")).map((input) => input.dataset.bulkEmp);
+  const days = Number(document.getElementById("bulk-sub-days").value);
+  const date = document.getElementById("bulk-sub-date").value;
+  const memo = document.getElementById("bulk-sub-memo").value.trim();
+  if (!employeeIds.length) {
+    alert("직원을 한 명 이상 선택해 주세요.");
+    return;
+  }
+  if (!date || !days) {
+    alert("날짜와 일수를 확인해 주세요.");
+    return;
+  }
+  employeeIds.forEach((empId, index) => {
+    state.subLeaves.push({
+      id: `s${Date.now()}_${index}`,
+      empId,
+      type: "grant",
+      days,
+      date,
+      memo
+    });
+  });
+  ui.subEmployeeId = employeeIds[0];
+  touchState("대체휴가 일괄 부여");
   closeModal();
   renderAll();
 }
@@ -963,8 +1052,11 @@ document.body.addEventListener("click", (event) => {
 function addSettingYear() {
   const nextYear = Math.max(...allYears()) + 1;
   const key = `${ui.settingsEmployeeId}_${nextYear}`;
-  state.totals[key] = accrual(employeeById(ui.settingsEmployeeId)?.joinDate, nextYear);
-  touchState("연도 추가");
+  state.totals[key] = state.totals[key] ?? accrual(
+    employeeById(ui.settingsEmployeeId)?.joinDate,
+    nextYear,
+    employeeById(ui.settingsEmployeeId)?.fiscalYearMonth
+  );
   renderSettings();
 }
 
@@ -1105,6 +1197,16 @@ function employeeById(empId) {
   return state.employees.find((employee) => employee.id === empId);
 }
 
+function defaultEmploymentRules() {
+  return [
+    "1. 회계년도 기준 연차는 설정된 시작 월을 기준으로 계산합니다.",
+    "2. 입사일 기준 자동 계산값이 기본값이며, 연도별 일수는 수동으로 조정할 수 있습니다.",
+    "3. 대체휴가는 관리자가 부여하며 사용 차감은 개별 이력으로 관리합니다.",
+    "4. 퇴사 정산 계산은 내부 참고용이며 실제 급여 정산 전 인사/노무 검토가 필요합니다.",
+    "5. 퇴사자 발생 시 미사용 연차와 1일 정산 단가를 함께 확인합니다."
+  ].join("\n");
+}
+
 function recordsOnDate(empId, date) {
   return state.records.filter((record) => record.empId === empId && record.date === date);
 }
@@ -1115,10 +1217,10 @@ function latestRecord(empId, year) {
     .sort((left, right) => right.date.localeCompare(left.date))[0];
 }
 
-function accrual(joinDate, year) {
+function accrual(joinDate, year, fiscalYearMonth = 1) {
   if (!joinDate) return 15;
   const join = new Date(joinDate);
-  const ref = new Date(year, 0, 1);
+  const ref = new Date(year, Math.max(0, Number(fiscalYearMonth || 1) - 1), 1);
   if (ref < join) return 0;
   const years = Math.floor((ref - join) / (1000 * 60 * 60 * 24 * 365.25));
   if (years < 1) {
@@ -1131,13 +1233,219 @@ function accrual(joinDate, year) {
 function getTotal(empId, year) {
   const key = `${empId}_${year}`;
   if (state.totals[key] !== undefined) return Number(state.totals[key]);
-  return accrual(employeeById(empId)?.joinDate, year);
+  const employee = employeeById(empId);
+  return accrual(employee?.joinDate, year, employee?.fiscalYearMonth);
 }
 
 function leaveDelta(type) {
   if (type === "연차") return 1;
   if (type.startsWith("반반차")) return 0.25;
   return 0.5;
+}
+
+function calcRetirementPayout(empId, year) {
+  const employee = employeeById(empId);
+  const summary = employeeSummary(empId, year);
+  const monthlyBasePay = Number(employee?.monthlyBasePay || 0);
+  const workHoursPerDay = Number(employee?.workHoursPerDay || state.settings.defaultWorkHoursPerDay || 8);
+  const monthlyStandardHours = Number(state.settings.monthlyStandardHours || 209);
+  const directUnitPrice = Number(employee?.leaveUnitPrice || 0);
+
+  let unitPrice = 0;
+  let formula = "1일 정산 단가를 직접 입력하거나 월 통상임금을 입력하면 계산됩니다.";
+  let note = "퇴사 정산 참고용 계산입니다.";
+
+  if (directUnitPrice > 0) {
+    unitPrice = directUnitPrice;
+    formula = "미사용 연차 × 직접 입력한 1일 연차 정산 단가";
+    note = "직접 입력한 단가를 우선 사용했습니다.";
+  } else if (monthlyBasePay > 0) {
+    const hourlyPay = monthlyBasePay / monthlyStandardHours;
+    unitPrice = hourlyPay * workHoursPerDay;
+    formula = `미사용 연차 × (월 통상임금 ${monthlyBasePay.toLocaleString("ko-KR")}원 ÷ ${monthlyStandardHours}시간 × ${workHoursPerDay}시간)`;
+    note = "월 통상임금 기준으로 1일 정산 단가를 계산했습니다.";
+  }
+
+  return {
+    remainingDays: Math.max(0, summary.remain),
+    unitPrice,
+    amount: Math.round(Math.max(0, summary.remain) * unitPrice),
+    formula,
+    note
+  };
+}
+
+function saveSettingsFromView() {
+  const employee = employeeById(ui.settingsEmployeeId);
+  if (!employee) return;
+
+  const joinDate = document.getElementById("join-date").value;
+  const fiscalYearMonth = Number(document.getElementById("fiscal-year-month").value || 1);
+  const resignationDate = document.getElementById("resignation-date").value;
+  const monthlyBasePay = Number(document.getElementById("monthly-base-pay").value || 0);
+  const workHoursPerDay = Number(document.getElementById("work-hours-per-day").value || state.settings.defaultWorkHoursPerDay || 8);
+  const monthlyStandardHours = Number(document.getElementById("monthly-standard-hours").value || 209);
+  const leaveUnitPrice = Number(document.getElementById("leave-unit-price").value || 0);
+  const employmentRules = document.getElementById("employment-rules").value.trim() || defaultEmploymentRules();
+
+  employee.joinDate = joinDate;
+  employee.fiscalYearMonth = fiscalYearMonth;
+  employee.resignationDate = resignationDate;
+  employee.monthlyBasePay = monthlyBasePay;
+  employee.workHoursPerDay = workHoursPerDay;
+  employee.leaveUnitPrice = leaveUnitPrice;
+  state.settings.monthlyStandardHours = monthlyStandardHours;
+  state.settings.employmentRules = employmentRules;
+
+  document.querySelectorAll("[data-total-emp]").forEach((input) => {
+    const empId = input.dataset.totalEmp;
+    const year = input.dataset.totalYear;
+    state.totals[`${empId}_${year}`] = Number(input.value || 0);
+  });
+
+  touchState("연차 설정 저장");
+  renderAll();
+}
+
+function exportExcelSnapshot() {
+  if (typeof XLSX === "undefined") {
+    alert("엑셀 라이브러리를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
+    return;
+  }
+
+  const year = ui.managerYear;
+  const summaryRows = state.employees.map((employee) => {
+    const summary = employeeSummary(employee.id, year);
+    return {
+      기준연도: year,
+      직원ID: employee.id,
+      이름: employee.name,
+      부서: employee.dept || "",
+      직책: employee.role || "",
+      입사일: employee.joinDate || "",
+      회계년도시작월: employee.fiscalYearMonth || 1,
+      퇴사일: employee.resignationDate || "",
+      생성연차: summary.total,
+      사용연차: summary.used,
+      잔여연차: summary.remain,
+      사용률: `${summary.usagePercent}%`,
+      월통상임금: employee.monthlyBasePay || 0,
+      일근로시간: employee.workHoursPerDay || 0,
+      일정산단가: employee.leaveUnitPrice || 0
+    };
+  });
+
+  const employeeRows = state.employees.map((employee) => ({
+    직원ID: employee.id,
+    이름: employee.name,
+    부서: employee.dept || "",
+    직책: employee.role || "",
+    입사일: employee.joinDate || "",
+    회계년도시작월: employee.fiscalYearMonth || 1,
+    퇴사일: employee.resignationDate || "",
+    월통상임금: employee.monthlyBasePay || 0,
+    일근로시간: employee.workHoursPerDay || 0,
+    일정산단가: employee.leaveUnitPrice || 0
+  }));
+
+  const subLeaveRows = state.subLeaves.map((item) => ({
+    직원ID: item.empId,
+    이름: employeeById(item.empId)?.name || "",
+    유형: item.type,
+    일수: item.days,
+    날짜: item.date,
+    메모: item.memo || ""
+  }));
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(summaryRows), "연차현황");
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(employeeRows), "직원기본정보");
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(subLeaveRows), "대체휴가");
+
+  const fileName = `guro_huga_summary_${year}.xlsx`;
+  XLSX.writeFile(workbook, fileName);
+}
+
+function importExcelSnapshot(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (typeof XLSX === "undefined") {
+    alert("엑셀 라이브러리를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
+    event.target.value = "";
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = (loadEvent) => {
+    try {
+      const workbook = XLSX.read(loadEvent.target.result, { type: "array" });
+      const infoSheet = workbook.Sheets["직원기본정보"];
+      const summarySheet = workbook.Sheets["연차현황"];
+
+      if (!infoSheet) {
+        throw new Error("'직원기본정보' 시트를 찾을 수 없습니다.");
+      }
+
+      const employeeRows = XLSX.utils.sheet_to_json(infoSheet, { defval: "" });
+      const summaryRows = summarySheet ? XLSX.utils.sheet_to_json(summarySheet, { defval: "" }) : [];
+
+      mergeEmployeesFromExcel(employeeRows);
+      mergeTotalsFromExcel(summaryRows);
+      normalizeState();
+      initializeSelections();
+      touchState("엑셀 업로드 반영");
+      renderAll();
+      alert("엑셀 업로드 내용을 반영했습니다.");
+    } catch (error) {
+      alert(`엑셀 업로드 중 오류가 발생했습니다: ${error.message}`);
+    } finally {
+      event.target.value = "";
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function mergeEmployeesFromExcel(rows) {
+  rows.forEach((row, index) => {
+    const id = String(row["직원ID"] || "").trim() || `excel_${Date.now()}_${index}`;
+    const existing = employeeById(id);
+    const next = {
+      id,
+      name: String(row["이름"] || "").trim() || existing?.name || `직원${index + 1}`,
+      dept: String(row["부서"] || "").trim(),
+      role: String(row["직책"] || "").trim(),
+      joinDate: normalizeDateCell(row["입사일"]),
+      color: existing?.color || COLORS[index % COLORS.length],
+      fiscalYearMonth: Number(row["회계년도시작월"] || existing?.fiscalYearMonth || 1),
+      resignationDate: normalizeDateCell(row["퇴사일"]),
+      monthlyBasePay: Number(row["월통상임금"] || existing?.monthlyBasePay || 0),
+      workHoursPerDay: Number(row["일근로시간"] || existing?.workHoursPerDay || state.settings.defaultWorkHoursPerDay || 8),
+      leaveUnitPrice: Number(row["일정산단가"] || existing?.leaveUnitPrice || 0)
+    };
+
+    if (existing) {
+      Object.assign(existing, next);
+    } else {
+      state.employees.push(next);
+      state.perms[id] = state.perms[id] || { grade: "normal", menus: {} };
+    }
+  });
+}
+
+function mergeTotalsFromExcel(rows) {
+  rows.forEach((row) => {
+    const id = String(row["직원ID"] || "").trim();
+    const year = Number(row["기준연도"] || 0);
+    const total = Number(row["생성연차"]);
+    if (!id || !year || Number.isNaN(total)) return;
+    state.totals[`${id}_${year}`] = total;
+  });
+}
+
+function normalizeDateCell(value) {
+  if (!value) return "";
+  if (typeof value === "string") return value.trim();
+  return String(value).trim();
 }
 
 function allYears() {
