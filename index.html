@@ -563,6 +563,7 @@
                   <th>특별휴가</th>
                   <th>사무실현황</th>
                   <th>인사정보</th>
+                  <th>데이터허브</th>
                   <th>동기화</th>
                 </tr>
               </thead>
@@ -718,6 +719,47 @@
             </div>
           </div>
         </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">배포 보존 스냅샷</div>
+            <div class="card-meta">최근 30건 자동 보존</div>
+          </div>
+          <div class="card-body stacked-fields">
+            <div class="button-row">
+              <button class="btn ghost small" data-action="download-current-snapshot">현재 데이터 다운로드</button>
+              <button class="btn primary small" data-action="restore-last-snapshot">최근 스냅샷 복원</button>
+            </div>
+            <div id="snapshot-log" class="log-box">스냅샷 로그가 여기에 표시됩니다.</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-datahub">
+        <div class="page-head">
+          <div>
+            <div class="page-title">카테고리별 엑셀 입출력</div>
+            <div class="page-sub">모든 메뉴 데이터를 카테고리 단위로 엑셀 다운로드/업로드할 수 있습니다.</div>
+          </div>
+          <div class="head-actions">
+            <button class="btn ghost" data-action="import-category-excel">카테고리 엑셀 업로드</button>
+            <button class="btn primary" data-action="export-category-excel">카테고리 엑셀 다운로드</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-body stacked-fields">
+            <label class="field-label" for="category-select">카테고리 선택</label>
+            <select id="category-select" class="field">
+              <option value="employees">직원 목록</option>
+              <option value="records">연차/사용 내역</option>
+              <option value="subLeaves">대체휴가</option>
+              <option value="specialLeaves">특별휴가</option>
+              <option value="hrRecords">인사/급여/세무</option>
+              <option value="perms">권한 관리</option>
+            </select>
+            <div class="hint-box">업로드 시 선택한 카테고리 데이터만 교체합니다.</div>
+          </div>
+        </div>
       </section>
     </main>
   </div>
@@ -739,6 +781,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <input id="excel-import-input" type="file" accept=".xlsx,.xls" hidden>
   <input id="hr-excel-import-input" type="file" accept=".xlsx,.xls" hidden>
+  <input id="category-excel-import-input" type="file" accept=".xlsx,.xls" hidden>
   <input id="backup-import-hidden" type="file" accept=".json" hidden>
 </body>
 </html>

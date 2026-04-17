@@ -23,7 +23,8 @@ const STORAGE_KEYS = {
   draft: "guro_huga_local_draft",
   token: "guro_huga_github_token",
   syncPrefs: "guro_huga_sync_prefs",
-  adminPw: "guro_huga_admin_pw_v1"
+  adminPw: "guro_huga_admin_pw_v1",
+  archive: "guro_huga_archive_v1"
 };
 
 const MENU_DEFS = [
@@ -37,6 +38,7 @@ const MENU_DEFS = [
   { key: "spe", label: "특별휴가" },
   { key: "office", label: "사무실 현황" },
   { key: "hr", label: "인사정보 등록" },
+  { key: "datahub", label: "데이터 허브" },
   { key: "perm", label: "권한 관리" },
   { key: "sync", label: "공유 저장" }
 ];
@@ -138,6 +140,10 @@ function bindStaticEvents() {
     if (action === "save-welfare-template") saveWelfareTemplate();
     if (action === "add-pay-grade-row") addPayGradeRow();
     if (action === "save-pay-grade-table") savePayGradeTable();
+    if (action === "export-category-excel") exportCategoryExcel();
+    if (action === "import-category-excel") document.getElementById("category-excel-import-input").click();
+    if (action === "download-current-snapshot") downloadCurrentSnapshot();
+    if (action === "restore-last-snapshot") restoreLastSnapshot();
     if (action === "save-now") await saveSharedNow();
     if (action === "reload-shared" || action === "refresh-remote") await reloadFromRemote();
   });
@@ -170,6 +176,7 @@ function bindStaticEvents() {
 
   document.getElementById("excel-import-input").addEventListener("change", importExcelSnapshot);
   document.getElementById("hr-excel-import-input").addEventListener("change", importHrExcel);
+  document.getElementById("category-excel-import-input").addEventListener("change", importCategoryExcel);
   document.getElementById("backup-import-hidden").addEventListener("change", importBackupSnapshot);
   document.getElementById("manager-search").addEventListener("input", (event) => {
     ui.managerFilter.search = event.target.value.trim().toLowerCase();
@@ -313,6 +320,7 @@ function renderAll() {
   renderSpecialLeaves();
   renderOfficeView();
   renderHrView();
+  renderDataHub();
   renderPermissions();
   renderManager();
   renderSyncPage();
@@ -726,6 +734,11 @@ function renderHrView() {
   renderPayGradeTable();
 }
 
+function renderDataHub() {
+  const select = document.getElementById("category-select");
+  if (!select.value) select.value = "employees";
+}
+
 function renderPermissions() {
   document.getElementById("permission-body").innerHTML = state.employees.map((employee) => {
     const grade = state.perms[employee.id]?.grade || "normal";
@@ -739,7 +752,7 @@ function renderPermissions() {
             <option value="limit" ${grade === "limit" ? "selected" : ""}>제한</option>
           </select>
         </td>
-        ${["dashboard", "cal", "hist", "set", "emp", "mgr", "sub", "spe", "office", "hr", "sync"].map((menu) => `
+        ${["dashboard", "cal", "hist", "set", "emp", "mgr", "sub", "spe", "office", "hr", "datahub", "sync"].map((menu) => `
           <td>
             <input type="checkbox" data-menu-emp="${employee.id}" data-menu-key="${menu}" ${hasRawMenu(employee.id, menu) ? "checked" : ""}>
           </td>
@@ -827,6 +840,10 @@ function renderSyncPage() {
   document.getElementById("last-loaded-at").textContent = lastLoadedAt || "없음";
   document.getElementById("sync-detail-status").textContent = syncStatus.label;
   document.getElementById("sync-log").textContent = syncStatus.detail;
+  const archive = getArchiveSnapshots();
+  document.getElementById("snapshot-log").textContent = archive.length
+    ? archive.slice(0, 10).map((item, index) => `${index + 1}. ${item.at} · ${item.message}`).join("\n")
+    : "아직 저장된 스냅샷이 없습니다.";
 }
 
 function renderSyncStatus() {
@@ -1440,6 +1457,7 @@ function touchState(message) {
   });
   state.auditLogs = state.auditLogs.slice(0, 200);
   localStorage.setItem(STORAGE_KEYS.draft, JSON.stringify(state));
+  archiveSnapshot(`자동저장: ${message}`);
   const prefs = getSyncPrefs();
   if (prefs.autoSave) {
     scheduleSharedSave(message);
@@ -1503,6 +1521,7 @@ async function saveSharedData(message) {
     const payload = await response.json();
     githubSha = payload.content?.sha || githubSha;
     lastSavedAt = formatDateTime(new Date());
+    archiveSnapshot(`배포 저장: ${message}`);
     setSyncStatus("success", "저장됨", `${message} 완료 · GitHub 공유 JSON이 업데이트되었습니다.`);
   } catch (error) {
     setSyncStatus("error", "실패", error.message);
@@ -1621,6 +1640,126 @@ function importBackupSnapshot(event) {
     }
   };
   reader.readAsText(file, "utf-8");
+}
+
+function exportCategoryExcel() {
+  if (typeof XLSX === "undefined") {
+    alert("엑셀 라이브러리를 불러오지 못했습니다.");
+    return;
+  }
+  const category = document.getElementById("category-select").value;
+  const rows = categoryRows(category);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), category);
+  XLSX.writeFile(workbook, `guro_huga_${category}_${formatDateKey(new Date())}.xlsx`);
+}
+
+function importCategoryExcel(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (typeof XLSX === "undefined") {
+    alert("엑셀 라이브러리를 불러오지 못했습니다.");
+    event.target.value = "";
+    return;
+  }
+  const category = document.getElementById("category-select").value;
+  const reader = new FileReader();
+  reader.onload = (loadEvent) => {
+    try {
+      const workbook = XLSX.read(loadEvent.target.result, { type: "array" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+      applyCategoryRows(category, rows);
+      normalizeState();
+      initializeSelections();
+      touchState(`카테고리 업로드: ${category}`);
+      renderAll();
+      alert(`${category} 카테고리 업로드를 반영했습니다.`);
+    } catch (error) {
+      alert(`카테고리 업로드 오류: ${error.message}`);
+    } finally {
+      event.target.value = "";
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function categoryRows(category) {
+  if (category === "employees") return state.employees;
+  if (category === "records") return state.records;
+  if (category === "subLeaves") return state.subLeaves;
+  if (category === "specialLeaves") return state.specialLeaves;
+  if (category === "hrRecords") {
+    return Object.entries(state.hrRecords).map(([key, value]) => ({ key, ...value }));
+  }
+  if (category === "perms") {
+    return Object.entries(state.perms).map(([empId, value]) => ({ empId, ...value }));
+  }
+  return [];
+}
+
+function applyCategoryRows(category, rows) {
+  if (category === "employees") state.employees = rows;
+  if (category === "records") state.records = rows;
+  if (category === "subLeaves") state.subLeaves = rows;
+  if (category === "specialLeaves") state.specialLeaves = rows;
+  if (category === "hrRecords") {
+    state.hrRecords = {};
+    rows.forEach((row) => {
+      const key = String(row.key || "").trim();
+      if (!key) return;
+      const next = { ...row };
+      delete next.key;
+      state.hrRecords[key] = next;
+    });
+  }
+  if (category === "perms") {
+    state.perms = {};
+    rows.forEach((row) => {
+      const empId = String(row.empId || "").trim();
+      if (!empId) return;
+      const next = { ...row };
+      delete next.empId;
+      state.perms[empId] = next;
+    });
+  }
+}
+
+function archiveSnapshot(message) {
+  const archive = getArchiveSnapshots();
+  archive.unshift({
+    at: formatDateTime(new Date()),
+    message,
+    state: JSON.parse(JSON.stringify(state))
+  });
+  localStorage.setItem(STORAGE_KEYS.archive, JSON.stringify(archive.slice(0, 30)));
+}
+
+function getArchiveSnapshots() {
+  return readJsonStorage(STORAGE_KEYS.archive) || [];
+}
+
+function downloadCurrentSnapshot() {
+  const blob = new Blob([`${JSON.stringify(state, null, 2)}\n`], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `guro_huga_snapshot_${formatDateKey(new Date())}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function restoreLastSnapshot() {
+  const archive = getArchiveSnapshots();
+  if (!archive.length) {
+    alert("복원할 스냅샷이 없습니다.");
+    return;
+  }
+  state = archive[0].state;
+  normalizeState();
+  initializeSelections();
+  touchState("최근 스냅샷 복원");
+  renderAll();
 }
 
 function currentUser() {
