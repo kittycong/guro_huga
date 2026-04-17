@@ -482,7 +482,12 @@
                 <thead>
                   <tr>
                     <th>직원</th>
+                    <th>직급</th>
+                    <th>급수</th>
+                    <th>호봉</th>
                     <th>월 기본급</th>
+                    <th>세금모드</th>
+                    <th>수동세율(%)</th>
                     <th>원천세</th>
                     <th>4대보험(월)</th>
                     <th>퇴직금 추정</th>
@@ -495,6 +500,38 @@
             <div class="card-body">
               <button class="btn primary" data-action="save-payroll-info">급여/세무 저장</button>
             </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">직급/급수/호봉 임금 테이블</div>
+            <div class="card-meta">자동임금 계산식에서 사용</div>
+          </div>
+          <div class="card-body stacked-fields">
+            <div class="button-row">
+              <button class="btn ghost small" data-action="add-pay-grade-row">테이블 행 추가</button>
+              <button class="btn primary small" data-action="save-pay-grade-table">임금 테이블 저장</button>
+            </div>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>직급</th>
+                    <th>급수</th>
+                    <th>호봉</th>
+                    <th>월 기본급</th>
+                    <th>삭제</th>
+                  </tr>
+                </thead>
+                <tbody id="pay-grade-body"></tbody>
+              </table>
+            </div>
+            <label class="field-label" for="hometax-rate">홈택스 기준 세율(%)</label>
+            <input id="hometax-rate" class="field" type="number" min="0" max="100" step="0.01">
+            <label class="field-label" for="local-tax-rate">지방소득세 가산비율(%)</label>
+            <input id="local-tax-rate" class="field" type="number" min="0" max="100" step="0.01">
+            <div class="hint-box">자동모드 세금 = 월기본급 × (홈택스 세율 + 홈택스 세율×지방소득세 가산비율)</div>
           </div>
         </div>
       </section>

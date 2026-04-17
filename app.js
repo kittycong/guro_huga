@@ -70,7 +70,10 @@ let state = {
     promotionMinDays: 5,
     promotionMaxUsagePercent: 40,
     opsMemo: "",
-    welfareStandard: defaultWelfareStandard()
+    welfareStandard: defaultWelfareStandard(),
+    payGradeTable: [],
+    hometaxRate: 0,
+    localTaxRate: 10
   },
   employees: [],
   records: [],
@@ -133,6 +136,8 @@ function bindStaticEvents() {
     if (action === "save-payroll-info") savePayrollInfoFromView();
     if (action === "apply-welfare-template") applyWelfareTemplate();
     if (action === "save-welfare-template") saveWelfareTemplate();
+    if (action === "add-pay-grade-row") addPayGradeRow();
+    if (action === "save-pay-grade-table") savePayGradeTable();
     if (action === "save-now") await saveSharedNow();
     if (action === "reload-shared" || action === "refresh-remote") await reloadFromRemote();
   });
@@ -239,6 +244,9 @@ function normalizeState() {
     promotionMaxUsagePercent: 40,
     opsMemo: "",
     welfareStandard: defaultWelfareStandard(),
+    payGradeTable: [],
+    hometaxRate: 0,
+    localTaxRate: 10,
     monthlyStandardHours: 209,
     defaultWorkHoursPerDay: 8,
     employmentRules: defaultEmploymentRules()
@@ -685,11 +693,24 @@ function renderHrView() {
 
   document.getElementById("payroll-body").innerHTML = state.employees.map((employee) => {
     const record = getHrRecord(employee.id, ui.hrYear);
+    const calculatedPay = calculatePayByGrade(record.payGrade, record.payLevel, record.payStep);
+    const basePay = Number(record.monthlySalary || calculatedPay || 0);
+    const autoTax = calculateAutoTax(basePay);
     return `
       <tr>
         <td>${employeeCell(employee)}</td>
-        <td><input class="field" type="number" min="0" step="10000" value="${record.monthlySalary || 0}" data-pay-salary="${employee.id}"></td>
-        <td><input class="field" type="number" min="0" step="1000" value="${record.withholdingTax || 0}" data-pay-tax="${employee.id}"></td>
+        <td><input class="field" type="text" value="${record.payGrade || ""}" data-pay-grade="${employee.id}" placeholder="예: 사회복지직"></td>
+        <td><input class="field" type="text" value="${record.payLevel || ""}" data-pay-level="${employee.id}" placeholder="예: 6급"></td>
+        <td><input class="field" type="number" min="1" step="1" value="${record.payStep || ""}" data-pay-step="${employee.id}" placeholder="예: 3"></td>
+        <td><input class="field" type="number" min="0" step="10000" value="${basePay}" data-pay-salary="${employee.id}"></td>
+        <td>
+          <select class="field" data-pay-tax-mode="${employee.id}">
+            <option value="hometax" ${record.taxMode === "hometax" ? "selected" : ""}>홈택스 비율</option>
+            <option value="manual" ${record.taxMode === "manual" ? "selected" : ""}>수동 계산식</option>
+          </select>
+        </td>
+        <td><input class="field" type="number" min="0" max="100" step="0.01" value="${record.manualTaxRate || 0}" data-pay-tax-rate="${employee.id}"></td>
+        <td><input class="field" type="number" min="0" step="1000" value="${record.taxMode === "manual" ? (record.withholdingTax || 0) : autoTax}" data-pay-tax="${employee.id}"></td>
         <td><input class="field" type="number" min="0" step="1000" value="${record.socialInsurance || 0}" data-pay-insurance="${employee.id}"></td>
         <td><input class="field" type="number" min="0" step="10000" value="${record.severanceEstimate || 0}" data-pay-severance="${employee.id}"></td>
         <td><label class="checkbox-row"><input type="checkbox" data-pay-edu="${employee.id}" ${record.mandatoryEduDone ? "checked" : ""}><span>이수</span></label></td>
@@ -702,6 +723,7 @@ function renderHrView() {
   document.getElementById("welfare-weekly-hours").value = standard.weeklyHours || 40;
   document.getElementById("welfare-retirement-note").value = standard.retirementNote || "";
   document.getElementById("welfare-education-note").value = standard.educationNote || "";
+  renderPayGradeTable();
 }
 
 function renderPermissions() {
@@ -1629,6 +1651,11 @@ function getHrRecord(empId, year) {
     workType: "",
     status: "재직",
     monthlySalary: 0,
+    payGrade: "",
+    payLevel: "",
+    payStep: "",
+    taxMode: "hometax",
+    manualTaxRate: 0,
     withholdingTax: 0,
     socialInsurance: 0,
     severanceEstimate: 0,
@@ -1915,8 +1942,17 @@ function savePayrollInfoFromView() {
   const year = ui.hrYear;
   state.employees.forEach((employee) => {
     const record = getHrRecord(employee.id, year);
-    record.monthlySalary = Number(document.querySelector(`[data-pay-salary="${employee.id}"]`)?.value || 0);
-    record.withholdingTax = Number(document.querySelector(`[data-pay-tax="${employee.id}"]`)?.value || 0);
+    record.payGrade = document.querySelector(`[data-pay-grade="${employee.id}"]`)?.value.trim() || "";
+    record.payLevel = document.querySelector(`[data-pay-level="${employee.id}"]`)?.value.trim() || "";
+    record.payStep = Number(document.querySelector(`[data-pay-step="${employee.id}"]`)?.value || 0);
+    const calculatedPay = calculatePayByGrade(record.payGrade, record.payLevel, record.payStep);
+    const inputSalary = Number(document.querySelector(`[data-pay-salary="${employee.id}"]`)?.value || 0);
+    record.monthlySalary = inputSalary || calculatedPay || 0;
+    record.taxMode = document.querySelector(`[data-pay-tax-mode="${employee.id}"]`)?.value || "hometax";
+    record.manualTaxRate = Number(document.querySelector(`[data-pay-tax-rate="${employee.id}"]`)?.value || 0);
+    const autoTax = calculateAutoTax(record.monthlySalary);
+    const manualTax = record.monthlySalary * (record.manualTaxRate / 100);
+    record.withholdingTax = Math.round(record.taxMode === "manual" ? manualTax : autoTax);
     record.socialInsurance = Number(document.querySelector(`[data-pay-insurance="${employee.id}"]`)?.value || 0);
     record.severanceEstimate = Number(document.querySelector(`[data-pay-severance="${employee.id}"]`)?.value || 0);
     record.mandatoryEduDone = !!document.querySelector(`[data-pay-edu="${employee.id}"]`)?.checked;
@@ -1924,6 +1960,62 @@ function savePayrollInfoFromView() {
   });
   touchState("급여/세무/퇴직금 정보 저장");
   renderHrView();
+}
+
+function renderPayGradeTable() {
+  const rows = state.settings.payGradeTable || [];
+  document.getElementById("pay-grade-body").innerHTML = rows.map((row, index) => `
+    <tr>
+      <td><input class="field" type="text" value="${row.grade || ""}" data-grade-name="${index}"></td>
+      <td><input class="field" type="text" value="${row.level || ""}" data-grade-level="${index}"></td>
+      <td><input class="field" type="number" min="1" step="1" value="${row.step || 1}" data-grade-step="${index}"></td>
+      <td><input class="field" type="number" min="0" step="10000" value="${row.basePay || 0}" data-grade-pay="${index}"></td>
+      <td><button class="btn ghost small" type="button" data-grade-delete="${index}">삭제</button></td>
+    </tr>
+  `).join("");
+
+  document.querySelectorAll("[data-grade-delete]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.settings.payGradeTable.splice(Number(button.dataset.gradeDelete), 1);
+      renderPayGradeTable();
+    });
+  });
+
+  document.getElementById("hometax-rate").value = state.settings.hometaxRate || 0;
+  document.getElementById("local-tax-rate").value = state.settings.localTaxRate ?? 10;
+}
+
+function addPayGradeRow() {
+  state.settings.payGradeTable = state.settings.payGradeTable || [];
+  state.settings.payGradeTable.push({ grade: "", level: "", step: 1, basePay: 0 });
+  renderPayGradeTable();
+}
+
+function savePayGradeTable() {
+  const size = (state.settings.payGradeTable || []).length;
+  state.settings.payGradeTable = Array.from({ length: size }, (_item, index) => ({
+    grade: document.querySelector(`[data-grade-name="${index}"]`)?.value.trim() || "",
+    level: document.querySelector(`[data-grade-level="${index}"]`)?.value.trim() || "",
+    step: Number(document.querySelector(`[data-grade-step="${index}"]`)?.value || 1),
+    basePay: Number(document.querySelector(`[data-grade-pay="${index}"]`)?.value || 0)
+  })).filter((item) => item.grade || item.level || item.basePay > 0);
+
+  state.settings.hometaxRate = Number(document.getElementById("hometax-rate").value || 0);
+  state.settings.localTaxRate = Number(document.getElementById("local-tax-rate").value || 10);
+  touchState("직급/호봉 임금 테이블 저장");
+  renderHrView();
+}
+
+function calculatePayByGrade(grade, level, step) {
+  const table = state.settings.payGradeTable || [];
+  const found = table.find((item) => item.grade === grade && item.level === level && Number(item.step) === Number(step));
+  return Number(found?.basePay || 0);
+}
+
+function calculateAutoTax(basePay) {
+  const hometaxRate = Number(state.settings.hometaxRate || 0) / 100;
+  const localRate = Number(state.settings.localTaxRate ?? 10) / 100;
+  return basePay * (hometaxRate + (hometaxRate * localRate));
 }
 
 function applyWelfareTemplate() {
@@ -1963,9 +2055,14 @@ function exportHrExcel() {
       승진월: record.promotionMonth || "",
       경력년수: record.careerYears || 0,
       자격사항: record.certifications || "",
+      직급: record.payGrade || "",
+      급수: record.payLevel || "",
+      호봉: record.payStep || 0,
       근무형태: record.workType,
       상태: record.status,
       월기본급: record.monthlySalary || 0,
+      세금모드: record.taxMode || "hometax",
+      수동세율: record.manualTaxRate || 0,
       원천세: record.withholdingTax || 0,
       사회보험: record.socialInsurance || 0,
       퇴직금추정: record.severanceEstimate || 0,
@@ -2009,9 +2106,14 @@ function importHrExcel(event) {
           promotionMonth: normalizeDateCell(row["승진월"]) || "",
           careerYears: Number(row["경력년수"] || 0),
           certifications: String(row["자격사항"] || "").trim(),
+          payGrade: String(row["직급"] || "").trim(),
+          payLevel: String(row["급수"] || "").trim(),
+          payStep: Number(row["호봉"] || 0),
           workType: String(row["근무형태"] || "").trim(),
           status: String(row["상태"] || "").trim(),
           monthlySalary: Number(row["월기본급"] || 0),
+          taxMode: String(row["세금모드"] || "hometax").trim() || "hometax",
+          manualTaxRate: Number(row["수동세율"] || 0),
           withholdingTax: Number(row["원천세"] || 0),
           socialInsurance: Number(row["사회보험"] || 0),
           severanceEstimate: Number(row["퇴직금추정"] || 0),
