@@ -19,6 +19,13 @@
 ./scripts_smoke_test.sh
 ```
 
+위 스크립트에는 배포 전 필수 점검으로 아래 항목이 포함됩니다.
+
+- `app.js`, `index.html`, `styles.css`, `README.md` 내 머지 충돌 마커(`<<<<<<<`, `=======`, `>>>>>>>`) 검사
+- JavaScript 문법 점검
+- JSON 유효성 점검
+- ERP/생일반차/법령 룰 버튼 및 핸들러 연결 점검
+
 수동으로 개별 체크를 하고 싶다면:
 
 ```bash
