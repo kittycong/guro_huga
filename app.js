@@ -69,7 +69,8 @@ let state = {
     expiryRiskDays: 3,
     promotionMinDays: 5,
     promotionMaxUsagePercent: 40,
-    opsMemo: ""
+    opsMemo: "",
+    welfareStandard: defaultWelfareStandard()
   },
   employees: [],
   records: [],
@@ -129,6 +130,9 @@ function bindStaticEvents() {
     if (action === "export-hr-excel") exportHrExcel();
     if (action === "import-hr-excel") document.getElementById("hr-excel-import-input").click();
     if (action === "save-hr-info") saveHrInfoFromView();
+    if (action === "save-payroll-info") savePayrollInfoFromView();
+    if (action === "apply-welfare-template") applyWelfareTemplate();
+    if (action === "save-welfare-template") saveWelfareTemplate();
     if (action === "save-now") await saveSharedNow();
     if (action === "reload-shared" || action === "refresh-remote") await reloadFromRemote();
   });
@@ -234,6 +238,7 @@ function normalizeState() {
     promotionMinDays: 5,
     promotionMaxUsagePercent: 40,
     opsMemo: "",
+    welfareStandard: defaultWelfareStandard(),
     monthlyStandardHours: 209,
     defaultWorkHoursPerDay: 8,
     employmentRules: defaultEmploymentRules()
@@ -666,6 +671,10 @@ function renderHrView() {
         <td><input class="field" type="text" value="${record.dept}" data-hr-dept="${employee.id}"></td>
         <td><input class="field" type="text" value="${record.role}" data-hr-role="${employee.id}"></td>
         <td><input class="field" type="date" value="${record.joinDate}" data-hr-join="${employee.id}"></td>
+        <td><input class="field" type="month" value="${record.stepMonth || ""}" data-hr-step="${employee.id}"></td>
+        <td><input class="field" type="month" value="${record.promotionMonth || ""}" data-hr-promotion="${employee.id}"></td>
+        <td><input class="field" type="number" min="0" step="0.5" value="${record.careerYears || ""}" data-hr-career="${employee.id}"></td>
+        <td><input class="field" type="text" value="${record.certifications || ""}" data-hr-cert="${employee.id}" placeholder="사회복지사1급, 회계 등"></td>
         <td><input class="field" type="text" value="${record.workType}" data-hr-work="${employee.id}" placeholder="정규/계약/파트 등"></td>
         <td><input class="field" type="text" value="${record.status}" data-hr-status="${employee.id}" placeholder="재직/휴직/퇴사"></td>
         <td>${birthInput}</td>
@@ -673,6 +682,26 @@ function renderHrView() {
       </tr>
     `;
   }).join("");
+
+  document.getElementById("payroll-body").innerHTML = state.employees.map((employee) => {
+    const record = getHrRecord(employee.id, ui.hrYear);
+    return `
+      <tr>
+        <td>${employeeCell(employee)}</td>
+        <td><input class="field" type="number" min="0" step="10000" value="${record.monthlySalary || 0}" data-pay-salary="${employee.id}"></td>
+        <td><input class="field" type="number" min="0" step="1000" value="${record.withholdingTax || 0}" data-pay-tax="${employee.id}"></td>
+        <td><input class="field" type="number" min="0" step="1000" value="${record.socialInsurance || 0}" data-pay-insurance="${employee.id}"></td>
+        <td><input class="field" type="number" min="0" step="10000" value="${record.severanceEstimate || 0}" data-pay-severance="${employee.id}"></td>
+        <td><label class="checkbox-row"><input type="checkbox" data-pay-edu="${employee.id}" ${record.mandatoryEduDone ? "checked" : ""}><span>이수</span></label></td>
+      </tr>
+    `;
+  }).join("");
+
+  const standard = state.settings.welfareStandard || defaultWelfareStandard();
+  document.getElementById("welfare-rule-name").value = standard.name || "";
+  document.getElementById("welfare-weekly-hours").value = standard.weeklyHours || 40;
+  document.getElementById("welfare-retirement-note").value = standard.retirementNote || "";
+  document.getElementById("welfare-education-note").value = standard.educationNote || "";
 }
 
 function renderPermissions() {
@@ -1593,8 +1622,17 @@ function getHrRecord(empId, year) {
     dept: employee.dept || "",
     role: employee.role || "",
     joinDate: employee.joinDate || "",
+    promotionMonth: "",
+    stepMonth: "",
+    careerYears: "",
+    certifications: "",
     workType: "",
-    status: "재직"
+    status: "재직",
+    monthlySalary: 0,
+    withholdingTax: 0,
+    socialInsurance: 0,
+    severanceEstimate: 0,
+    mandatoryEduDone: false
   }, state.hrRecords[key] || {});
   return state.hrRecords[key];
 }
@@ -1607,6 +1645,15 @@ function defaultEmploymentRules() {
     "4. 퇴사 정산 계산은 내부 참고용이며 실제 급여 정산 전 인사/노무 검토가 필요합니다.",
     "5. 퇴사자 발생 시 미사용 연차와 1일 정산 단가를 함께 확인합니다."
   ].join("\n");
+}
+
+function defaultWelfareStandard() {
+  return {
+    name: "서울시 사회복지시설 인사·노무 기준 템플릿",
+    weeklyHours: 40,
+    retirementNote: "퇴직금은 근로기준법/근로자퇴직급여보장법 및 시설 운영지침 최신판을 기준으로 산정",
+    educationNote: "직장 내 성희롱 예방, 장애인 인식개선, 개인정보보호, 산업안전보건 등 법정의무교육 이수 관리 필요"
+  };
 }
 
 function recordsOnDate(empId, date) {
@@ -1835,11 +1882,19 @@ function saveHrInfoFromView() {
     const dept = document.querySelector(`[data-hr-dept="${employee.id}"]`)?.value.trim() || "";
     const role = document.querySelector(`[data-hr-role="${employee.id}"]`)?.value.trim() || "";
     const joinDate = document.querySelector(`[data-hr-join="${employee.id}"]`)?.value || "";
+    const stepMonth = document.querySelector(`[data-hr-step="${employee.id}"]`)?.value || "";
+    const promotionMonth = document.querySelector(`[data-hr-promotion="${employee.id}"]`)?.value || "";
+    const careerYears = Number(document.querySelector(`[data-hr-career="${employee.id}"]`)?.value || 0);
+    const certifications = document.querySelector(`[data-hr-cert="${employee.id}"]`)?.value.trim() || "";
     const workType = document.querySelector(`[data-hr-work="${employee.id}"]`)?.value.trim() || "";
     const status = document.querySelector(`[data-hr-status="${employee.id}"]`)?.value.trim() || "";
     record.dept = dept;
     record.role = role;
     record.joinDate = joinDate;
+    record.stepMonth = stepMonth;
+    record.promotionMonth = promotionMonth;
+    record.careerYears = careerYears;
+    record.certifications = certifications;
     record.workType = workType;
     record.status = status;
     state.hrRecords[`${employee.id}_${year}`] = record;
@@ -1854,6 +1909,38 @@ function saveHrInfoFromView() {
   });
   touchState(admin ? "년도별 인사정보 저장" : "년도별 인사정보 저장(관리자 민감정보 제외)");
   renderAll();
+}
+
+function savePayrollInfoFromView() {
+  const year = ui.hrYear;
+  state.employees.forEach((employee) => {
+    const record = getHrRecord(employee.id, year);
+    record.monthlySalary = Number(document.querySelector(`[data-pay-salary="${employee.id}"]`)?.value || 0);
+    record.withholdingTax = Number(document.querySelector(`[data-pay-tax="${employee.id}"]`)?.value || 0);
+    record.socialInsurance = Number(document.querySelector(`[data-pay-insurance="${employee.id}"]`)?.value || 0);
+    record.severanceEstimate = Number(document.querySelector(`[data-pay-severance="${employee.id}"]`)?.value || 0);
+    record.mandatoryEduDone = !!document.querySelector(`[data-pay-edu="${employee.id}"]`)?.checked;
+    state.hrRecords[`${employee.id}_${year}`] = record;
+  });
+  touchState("급여/세무/퇴직금 정보 저장");
+  renderHrView();
+}
+
+function applyWelfareTemplate() {
+  state.settings.welfareStandard = defaultWelfareStandard();
+  touchState("서울시 사회복지시설 기준 템플릿 적용");
+  renderHrView();
+}
+
+function saveWelfareTemplate() {
+  state.settings.welfareStandard = {
+    name: document.getElementById("welfare-rule-name").value.trim() || defaultWelfareStandard().name,
+    weeklyHours: Number(document.getElementById("welfare-weekly-hours").value || 40),
+    retirementNote: document.getElementById("welfare-retirement-note").value.trim(),
+    educationNote: document.getElementById("welfare-education-note").value.trim()
+  };
+  touchState("사회복지시설 기준 저장");
+  renderHrView();
 }
 
 function exportHrExcel() {
@@ -1872,8 +1959,17 @@ function exportHrExcel() {
       부서: record.dept,
       직책: record.role,
       입사일: record.joinDate,
+      승호월: record.stepMonth || "",
+      승진월: record.promotionMonth || "",
+      경력년수: record.careerYears || 0,
+      자격사항: record.certifications || "",
       근무형태: record.workType,
       상태: record.status,
+      월기본급: record.monthlySalary || 0,
+      원천세: record.withholdingTax || 0,
+      사회보험: record.socialInsurance || 0,
+      퇴직금추정: record.severanceEstimate || 0,
+      의무교육이수: record.mandatoryEduDone ? "Y" : "N",
       생년월일: admin ? (employee.birthDate || "") : "",
       개인정보메모: admin ? (employee.personalInfo || "") : ""
     };
@@ -1909,8 +2005,17 @@ function importHrExcel(event) {
           dept: String(row["부서"] || employee.dept || "").trim(),
           role: String(row["직책"] || employee.role || "").trim(),
           joinDate: normalizeDateCell(row["입사일"]) || employee.joinDate || "",
+          stepMonth: normalizeDateCell(row["승호월"]) || "",
+          promotionMonth: normalizeDateCell(row["승진월"]) || "",
+          careerYears: Number(row["경력년수"] || 0),
+          certifications: String(row["자격사항"] || "").trim(),
           workType: String(row["근무형태"] || "").trim(),
-          status: String(row["상태"] || "").trim()
+          status: String(row["상태"] || "").trim(),
+          monthlySalary: Number(row["월기본급"] || 0),
+          withholdingTax: Number(row["원천세"] || 0),
+          socialInsurance: Number(row["사회보험"] || 0),
+          severanceEstimate: Number(row["퇴직금추정"] || 0),
+          mandatoryEduDone: String(row["의무교육이수"] || "").toUpperCase() === "Y"
         };
         if (admin) {
           employee.birthDate = normalizeDateCell(row["생년월일"]) || employee.birthDate || "";

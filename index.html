@@ -432,6 +432,10 @@
                   <th>부서</th>
                   <th>직책</th>
                   <th>입사일</th>
+                  <th>승호월</th>
+                  <th>승진월</th>
+                  <th>경력(년)</th>
+                  <th>자격사항</th>
                   <th>근무형태</th>
                   <th>상태</th>
                   <th>생년월일(관리자)</th>
@@ -443,6 +447,54 @@
           </div>
           <div class="card-body">
             <button class="btn primary" data-action="save-hr-info">인사정보 저장</button>
+          </div>
+        </div>
+
+        <div class="layout-two">
+          <div class="card">
+            <div class="card-head">
+              <div class="card-title">서울시 사회복지시설 기준 템플릿</div>
+              <div class="card-meta">기준값은 편집 가능</div>
+            </div>
+            <div class="card-body stacked-fields">
+              <label class="field-label" for="welfare-rule-name">기준명</label>
+              <input id="welfare-rule-name" class="field" type="text">
+              <label class="field-label" for="welfare-weekly-hours">주당 기준 근로시간</label>
+              <input id="welfare-weekly-hours" class="field" type="number" min="1" max="80">
+              <label class="field-label" for="welfare-retirement-note">퇴직금 기준 메모</label>
+              <textarea id="welfare-retirement-note" class="field" rows="3"></textarea>
+              <label class="field-label" for="welfare-education-note">법정의무교육 기준 메모</label>
+              <textarea id="welfare-education-note" class="field" rows="3"></textarea>
+              <div class="button-row">
+                <button class="btn ghost small" data-action="apply-welfare-template">서울시 템플릿 불러오기</button>
+                <button class="btn primary small" data-action="save-welfare-template">기준 저장</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <div class="card-title">급여/세무/퇴직금 관리</div>
+              <div class="card-meta">연도별 통합 입력</div>
+            </div>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>직원</th>
+                    <th>월 기본급</th>
+                    <th>원천세</th>
+                    <th>4대보험(월)</th>
+                    <th>퇴직금 추정</th>
+                    <th>의무교육 이수</th>
+                  </tr>
+                </thead>
+                <tbody id="payroll-body"></tbody>
+              </table>
+            </div>
+            <div class="card-body">
+              <button class="btn primary" data-action="save-payroll-info">급여/세무 저장</button>
+            </div>
           </div>
         </div>
       </section>
