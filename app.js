@@ -39,6 +39,7 @@ const MENU_DEFS = [
   { key: "office", label: "사무실 현황" },
   { key: "hr", label: "인사정보 등록" },
   { key: "datahub", label: "데이터 허브" },
+  { key: "erp", label: "ERP 구조" },
   { key: "perm", label: "권한 관리" },
   { key: "sync", label: "공유 저장" }
 ];
@@ -75,7 +76,10 @@ let state = {
     welfareStandard: defaultWelfareStandard(),
     payGradeTable: [],
     hometaxRate: 0,
-    localTaxRate: 10
+    localTaxRate: 10,
+    birthdayRule: defaultBirthdayRule(),
+    activeLaborRuleYear: 2026,
+    laborRuleCache: {}
   },
   employees: [],
   records: [],
@@ -144,6 +148,10 @@ function bindStaticEvents() {
     if (action === "import-category-excel") document.getElementById("category-excel-import-input").click();
     if (action === "download-current-snapshot") downloadCurrentSnapshot();
     if (action === "restore-last-snapshot") restoreLastSnapshot();
+    if (action === "save-birthday-rule") saveBirthdayRule();
+    if (action === "run-birthday-grant") runBirthdayHalfDayGrant();
+    if (action === "load-labor-rule") await loadLaborRule();
+    if (action === "activate-labor-rule") activateLaborRuleYear();
     if (action === "save-now") await saveSharedNow();
     if (action === "reload-shared" || action === "refresh-remote") await reloadFromRemote();
   });
@@ -254,6 +262,9 @@ function normalizeState() {
     payGradeTable: [],
     hometaxRate: 0,
     localTaxRate: 10,
+    birthdayRule: defaultBirthdayRule(),
+    activeLaborRuleYear: 2026,
+    laborRuleCache: {},
     monthlyStandardHours: 209,
     defaultWorkHoursPerDay: 8,
     employmentRules: defaultEmploymentRules()
@@ -321,6 +332,7 @@ function renderAll() {
   renderOfficeView();
   renderHrView();
   renderDataHub();
+  renderErpView();
   renderPermissions();
   renderManager();
   renderSyncPage();
@@ -731,12 +743,123 @@ function renderHrView() {
   document.getElementById("welfare-weekly-hours").value = standard.weeklyHours || 40;
   document.getElementById("welfare-retirement-note").value = standard.retirementNote || "";
   document.getElementById("welfare-education-note").value = standard.educationNote || "";
+  const birthdayRule = state.settings.birthdayRule || defaultBirthdayRule();
+  document.getElementById("birthday-grant-rule").value = birthdayRule.base;
+  document.getElementById("birthday-grant-days").value = birthdayRule.days;
+  document.getElementById("birthday-min-months").value = birthdayRule.minMonths;
+  document.getElementById("labor-rule-year").value = String(state.settings.activeLaborRuleYear || 2026);
+  document.getElementById("labor-rule-log").textContent = state.settings.laborRuleLog || "룰 로드/시뮬레이션 결과가 표시됩니다.";
   renderPayGradeTable();
 }
 
 function renderDataHub() {
   const select = document.getElementById("category-select");
   if (!select.value) select.value = "employees";
+}
+
+function renderErpView() {
+  const sections = {
+    hr: [
+      "인사카드(기본/신상/경력/자격/학력/가족)",
+      "조직도(부서/직책/겸직)",
+      "인사발령(입사/전보/휴직/복직/퇴사)",
+      "승호/승진/승급 월 관리"
+    ],
+    attendance: [
+      "연차/특별휴가/생일반차 자동부여",
+      "근태 마감(월 단위)",
+      "출퇴근/초과근무 연동"
+    ],
+    payroll: [
+      "급여항목 템플릿(기본급/수당/공제)",
+      "4대보험/원천세 계산",
+      "지급명세서/원천징수 신고 데이터 출력",
+      "퇴직금(평균임금/통상임금 시나리오)"
+    ],
+    compliance: [
+      "법정의무교육 대상/이수현황",
+      "미이수 알림/이력",
+      "취업규칙/노사 문서 관리",
+      "개인정보 접근권한 + 접근로그",
+      "변경이력(Audit trail), 백업/복구 + 버전 롤백"
+    ]
+  };
+  document.getElementById("erp-hr-core").innerHTML = sections.hr.map((item) => `<div class="row-item"><div class="row-title">${item}</div></div>`).join("");
+  document.getElementById("erp-attendance").innerHTML = sections.attendance.map((item) => `<div class="row-item"><div class="row-title">${item}</div></div>`).join("");
+  document.getElementById("erp-payroll").innerHTML = sections.payroll.map((item) => `<div class="row-item"><div class="row-title">${item}</div></div>`).join("");
+  document.getElementById("erp-compliance").innerHTML = sections.compliance.map((item) => `<div class="row-item"><div class="row-title">${item}</div></div>`).join("");
+}
+
+function saveBirthdayRule() {
+  state.settings.birthdayRule = {
+    base: document.getElementById("birthday-grant-rule").value,
+    days: Number(document.getElementById("birthday-grant-days").value || 0.5),
+    minMonths: Number(document.getElementById("birthday-min-months").value || 3)
+  };
+  touchState("생일반차 규칙 저장");
+  renderHrView();
+}
+
+function runBirthdayHalfDayGrant() {
+  const rule = state.settings.birthdayRule || defaultBirthdayRule();
+  const year = ui.hrYear;
+  const grants = [];
+  state.employees.forEach((employee) => {
+    if (!employee.birthDate || !employee.joinDate) return;
+    const join = new Date(employee.joinDate);
+    const 기준일 = new Date(year, 0, 1);
+    const workedMonths = (기준일.getFullYear() - join.getFullYear()) * 12 + (기준일.getMonth() - join.getMonth());
+    if (workedMonths < rule.minMonths) return;
+    const month = Number(employee.birthDate.slice(5, 7));
+    const day = Number(employee.birthDate.slice(8, 10));
+    const date = rule.base === "birthday"
+      ? `${year}-${pad(month)}-${pad(day)}`
+      : `${year}-${pad(month)}-01`;
+    const exists = state.specialLeaves.some((item) => item.empId === employee.id && item.reason === "생일반차" && item.date.startsWith(String(year)));
+    if (exists) return;
+    state.specialLeaves.push({
+      id: `sp_birth_${employee.id}_${year}`,
+      empId: employee.id,
+      action: "grant",
+      reason: "생일반차",
+      days: rule.days,
+      date,
+      evidence: "자동부여",
+      memo: `${year}년 생일반차 자동부여`
+    });
+    grants.push(`${employee.name} ${date}`);
+  });
+  state.settings.laborRuleLog = grants.length
+    ? `생일반차 자동부여 ${grants.length}건\n${grants.join("\n")}`
+    : "생일반차 자동부여 대상이 없거나 이미 부여되었습니다.";
+  touchState("생일반차 자동부여 실행");
+  renderAll();
+}
+
+async function loadLaborRule() {
+  const year = document.getElementById("labor-rule-year").value;
+  try {
+    const response = await fetch(`./rules/labor/${year}.json?ts=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) throw new Error(`룰파일 로드 실패 (${response.status})`);
+    const rule = await response.json();
+    state.settings.laborRuleCache[year] = rule;
+    state.settings.laborRuleLog = `${year} 룰파일 로드 완료\n시행일: ${rule.effectiveFrom} ~ ${rule.effectiveTo}\n핵심: ${rule.summary || "-"}`;
+    renderHrView();
+  } catch (error) {
+    state.settings.laborRuleLog = `룰파일 로드 실패: ${error.message}`;
+    renderHrView();
+  }
+}
+
+function activateLaborRuleYear() {
+  const year = Number(document.getElementById("labor-rule-year").value || ui.hrYear);
+  state.settings.activeLaborRuleYear = year;
+  const rule = state.settings.laborRuleCache[String(year)];
+  state.settings.laborRuleLog = rule
+    ? `${year} 룰 활성화 완료\n요약: ${rule.summary || "-"}`
+    : `${year} 룰 활성화 완료(캐시 없음, 먼저 룰파일 불러오기를 실행하세요).`;
+  touchState(`${year} 법령 룰 활성화`);
+  renderHrView();
 }
 
 function renderPermissions() {
@@ -752,7 +875,7 @@ function renderPermissions() {
             <option value="limit" ${grade === "limit" ? "selected" : ""}>제한</option>
           </select>
         </td>
-        ${["dashboard", "cal", "hist", "set", "emp", "mgr", "sub", "spe", "office", "hr", "datahub", "sync"].map((menu) => `
+        ${["dashboard", "cal", "hist", "set", "emp", "mgr", "sub", "spe", "office", "hr", "datahub", "erp", "sync"].map((menu) => `
           <td>
             <input type="checkbox" data-menu-emp="${employee.id}" data-menu-key="${menu}" ${hasRawMenu(employee.id, menu) ? "checked" : ""}>
           </td>
@@ -1819,6 +1942,14 @@ function defaultWelfareStandard() {
     weeklyHours: 40,
     retirementNote: "퇴직금은 근로기준법/근로자퇴직급여보장법 및 시설 운영지침 최신판을 기준으로 산정",
     educationNote: "직장 내 성희롱 예방, 장애인 인식개선, 개인정보보호, 산업안전보건 등 법정의무교육 이수 관리 필요"
+  };
+}
+
+function defaultBirthdayRule() {
+  return {
+    base: "month_start",
+    days: 0.5,
+    minMonths: 3
   };
 }
 

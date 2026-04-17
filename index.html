@@ -534,6 +534,37 @@
             <div class="hint-box">자동모드 세금 = 월기본급 × (홈택스 세율 + 홈택스 세율×지방소득세 가산비율)</div>
           </div>
         </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">생년월일 ↔ 생일반차 자동부여 / 법령 룰 엔진</div>
+            <div class="card-meta">연도별 룰파일 기반</div>
+          </div>
+          <div class="card-body stacked-fields">
+            <label class="field-label" for="birthday-grant-rule">부여 기준</label>
+            <select id="birthday-grant-rule" class="field">
+              <option value="month_start">생일월 1일</option>
+              <option value="birthday">생일 당일</option>
+            </select>
+            <label class="field-label" for="birthday-grant-days">부여 일수</label>
+            <input id="birthday-grant-days" class="field" type="number" min="0.5" step="0.5">
+            <label class="field-label" for="birthday-min-months">최소 근속 개월수</label>
+            <input id="birthday-min-months" class="field" type="number" min="0" step="1">
+            <div class="button-row">
+              <button class="btn ghost small" data-action="save-birthday-rule">생일반차 규칙 저장</button>
+              <button class="btn primary small" data-action="run-birthday-grant">선택 연도 자동부여 실행</button>
+            </div>
+            <label class="field-label" for="labor-rule-year">활성 법령 룰 연도</label>
+            <select id="labor-rule-year" class="field">
+              <option value="2026">2026</option>
+            </select>
+            <div class="button-row">
+              <button class="btn ghost small" data-action="load-labor-rule">룰파일 불러오기</button>
+              <button class="btn primary small" data-action="activate-labor-rule">올해 룰 활성화</button>
+            </div>
+            <div id="labor-rule-log" class="log-box">룰 로드/시뮬레이션 결과가 표시됩니다.</div>
+          </div>
+        </div>
       </section>
 
       <section class="view" id="view-perm">
@@ -564,6 +595,7 @@
                   <th>사무실현황</th>
                   <th>인사정보</th>
                   <th>데이터허브</th>
+                  <th>ERP구조</th>
                   <th>동기화</th>
                 </tr>
               </thead>
@@ -758,6 +790,35 @@
               <option value="perms">권한 관리</option>
             </select>
             <div class="hint-box">업로드 시 선택한 카테고리 데이터만 교체합니다.</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-erp">
+        <div class="page-head">
+          <div>
+            <div class="page-title">ERP형 확장 구조</div>
+            <div class="page-sub">인사/근태/급여/노무/리스크 모듈을 단계적으로 운영합니다.</div>
+          </div>
+        </div>
+        <div class="layout-two">
+          <div class="card">
+            <div class="card-head"><div class="card-title">인사기본</div></div>
+            <div class="stack-list compact" id="erp-hr-core"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><div class="card-title">근태·휴가</div></div>
+            <div class="stack-list compact" id="erp-attendance"></div>
+          </div>
+        </div>
+        <div class="layout-two">
+          <div class="card">
+            <div class="card-head"><div class="card-title">급여·세무</div></div>
+            <div class="stack-list compact" id="erp-payroll"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><div class="card-title">노무·컴플라이언스 / 리스크·감사</div></div>
+            <div class="stack-list compact" id="erp-compliance"></div>
           </div>
         </div>
       </section>
