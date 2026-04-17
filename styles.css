@@ -162,6 +162,12 @@ button {
   outline: none;
 }
 
+.field.tall-area {
+  min-height: 280px;
+  resize: vertical;
+  line-height: 1.65;
+}
+
 .sidebar .field {
   background: rgba(255, 255, 255, 0.14);
   color: #fff;
@@ -810,6 +816,24 @@ button {
 .sub-value {
   font-size: 32px;
   font-weight: 900;
+}
+
+.sub-balance-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.calc-result {
+  display: grid;
+  gap: 6px;
+}
+
+.calc-amount {
+  font-size: 28px;
+  font-weight: 900;
+  color: var(--rose-deep);
 }
 
 .checkbox-row {

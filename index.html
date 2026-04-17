@@ -175,7 +175,11 @@
         <div class="page-head">
           <div>
             <div class="page-title">연차 설정</div>
-            <div class="page-sub">입사일 기준 자동 계산과 연도별 수동 조정을 함께 관리합니다.</div>
+            <div class="page-sub">입사일, 회계년도, 수동 연차, 취업규칙, 퇴사 정산 참고값을 함께 관리합니다.</div>
+          </div>
+          <div class="head-actions">
+            <button class="btn ghost" data-action="reset-settings">입력 초기화</button>
+            <button class="btn primary" data-action="save-settings">수정 후 저장</button>
           </div>
         </div>
         <div class="layout-two">
@@ -183,12 +187,31 @@
             <div class="card-head">
               <div class="card-title">직원 선택</div>
             </div>
-            <div class="card-body">
+            <div class="card-body stacked-fields">
               <label class="field-label" for="set-emp-sel">설정할 직원</label>
               <select id="set-emp-sel" class="field"></select>
 
               <label class="field-label" for="join-date">입사일</label>
               <input id="join-date" type="date" class="field">
+
+              <label class="field-label" for="fiscal-year-month">회계년도 시작 월</label>
+              <select id="fiscal-year-month" class="field">
+                <option value="1">1월</option>
+                <option value="2">2월</option>
+                <option value="3">3월</option>
+                <option value="4">4월</option>
+                <option value="5">5월</option>
+                <option value="6">6월</option>
+                <option value="7">7월</option>
+                <option value="8">8월</option>
+                <option value="9">9월</option>
+                <option value="10">10월</option>
+                <option value="11">11월</option>
+                <option value="12">12월</option>
+              </select>
+
+              <label class="field-label" for="resignation-date">퇴사일</label>
+              <input id="resignation-date" type="date" class="field">
 
               <div id="accrual-hint" class="hint-box"></div>
 
@@ -202,6 +225,40 @@
               <div class="card-meta">수동 입력값 우선</div>
             </div>
             <div id="year-inputs" class="card-body stacked-fields"></div>
+          </div>
+        </div>
+
+        <div class="layout-two">
+          <div class="card">
+            <div class="card-head">
+              <div class="card-title">퇴사자 연차 정산 참고 계산</div>
+              <div class="card-meta">내부 참고용</div>
+            </div>
+            <div class="card-body stacked-fields">
+              <label class="field-label" for="monthly-base-pay">월 통상임금</label>
+              <input id="monthly-base-pay" class="field" type="number" min="0" step="1000">
+
+              <label class="field-label" for="work-hours-per-day">1일 소정근로시간</label>
+              <input id="work-hours-per-day" class="field" type="number" min="0" step="0.5">
+
+              <label class="field-label" for="monthly-standard-hours">월 기준 시간</label>
+              <input id="monthly-standard-hours" class="field" type="number" min="1" step="1">
+
+              <label class="field-label" for="leave-unit-price">1일 연차 정산 단가 직접 입력</label>
+              <input id="leave-unit-price" class="field" type="number" min="0" step="1000">
+
+              <div id="settlement-summary" class="hint-box"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <div class="card-title">취업규칙 / 연차 운영 기준</div>
+              <div class="card-meta">읽기 및 수정 가능</div>
+            </div>
+            <div class="card-body stacked-fields">
+              <textarea id="employment-rules" class="field tall-area" rows="14"></textarea>
+            </div>
           </div>
         </div>
       </section>
@@ -226,6 +283,7 @@
             <div class="page-sub">대체휴가 부여, 사용, 잔여 현황을 함께 관리합니다.</div>
           </div>
           <div class="head-actions">
+            <button class="btn ghost" data-action="open-bulk-subleave-modal">일괄 부여</button>
             <button class="btn primary" data-action="open-subleave-modal">대체휴가 부여</button>
           </div>
         </div>
@@ -296,6 +354,10 @@
           <div>
             <div class="page-title">전체 현황</div>
             <div class="page-sub">직원별 생성, 사용, 잔여, 최근 기록을 테이블로 확인합니다.</div>
+          </div>
+          <div class="head-actions">
+            <button class="btn ghost" data-action="import-excel">엑셀 업로드</button>
+            <button class="btn primary" data-action="export-excel">엑셀 다운로드</button>
           </div>
         </div>
         <div class="year-tabs" id="manager-year-tabs"></div>
@@ -407,5 +469,7 @@
   </div>
 
   <script src="./app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <input id="excel-import-input" type="file" accept=".xlsx,.xls" hidden>
 </body>
 </html>
