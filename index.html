@@ -800,6 +800,35 @@
             <div class="page-title">ERP형 확장 구조</div>
             <div class="page-sub">인사/근태/급여/노무/리스크 모듈을 단계적으로 운영합니다.</div>
           </div>
+          <div class="head-actions">
+            <button class="btn ghost" data-action="auto-build-org">조직도 자동구성</button>
+            <button class="btn primary" data-action="open-erp-menu" data-view="hr">인사정보 바로가기</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <div class="card-title">조직도 / 부서 운영</div>
+              <div class="card-meta">부서-상위부서-팀장 구조를 저장하고 인원현황을 바로 확인합니다.</div>
+            </div>
+          </div>
+          <div class="card-body stacked-fields">
+            <div class="filter-grid">
+              <input id="org-unit-name" class="field" type="text" placeholder="부서명 (예: 사례관리팀)">
+              <select id="org-parent-id" class="field">
+                <option value="">상위부서(없음)</option>
+              </select>
+              <select id="org-leader-id" class="field">
+                <option value="">팀장 선택</option>
+              </select>
+              <input id="org-unit-note" class="field" type="text" placeholder="메모 (예: 야간 당직 운영)">
+            </div>
+            <div class="button-row">
+              <button class="btn primary small" data-action="save-org-unit">부서 저장</button>
+              <button class="btn ghost small" data-action="reset-org-unit-form">입력 초기화</button>
+            </div>
+            <div id="org-unit-list" class="stack-list compact"></div>
+          </div>
         </div>
         <div class="layout-two">
           <div class="card">
@@ -821,6 +850,7 @@
             <div class="stack-list compact" id="erp-compliance"></div>
           </div>
         </div>
+        <input id="org-edit-id" type="hidden">
       </section>
     </main>
   </div>

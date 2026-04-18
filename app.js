@@ -54,6 +54,7 @@ const ui = {
   settingsEmployeeId: "",
   subEmployeeId: "",
   specialEmployeeId: "",
+  orgEditId: "",
   managerFilter: { search: "", dept: "", risk: "all", usageMin: "", usageMax: "" },
   modalType: ""
 };
@@ -87,6 +88,7 @@ let state = {
   subLeaves: [],
   specialLeaves: [],
   hrRecords: {},
+  orgUnits: [],
   auditLogs: [],
   perms: {}
 };
@@ -112,7 +114,8 @@ async function init() {
 
 function bindStaticEvents() {
   document.body.addEventListener("click", async (event) => {
-    const action = event.target.closest("[data-action]")?.dataset.action;
+    const actionElement = event.target.closest("[data-action]");
+    const action = actionElement?.dataset.action;
     if (!action) return;
 
     if (action === "open-record-modal") openRecordModal();
@@ -154,6 +157,13 @@ function bindStaticEvents() {
     if (action === "activate-labor-rule") activateLaborRuleYear();
     if (action === "save-now") await saveSharedNow();
     if (action === "reload-shared" || action === "refresh-remote") await reloadFromRemote();
+    if (action === "open-erp-menu") switchView(actionElement.dataset.view || "dashboard");
+    if (action === "save-org-unit") saveOrgUnit();
+    if (action === "reset-org-unit-form") resetOrgUnitForm();
+    if (action === "auto-build-org") autoBuildOrgUnits();
+    if (action === "edit-org-unit") editOrgUnit(actionElement.dataset.orgUnitId);
+    if (action === "delete-org-unit") deleteOrgUnit(actionElement.dataset.orgUnitId);
+    if (action === "toggle-erp-module") toggleErpModule(actionElement.dataset.erpModuleId);
   });
 
   document.getElementById("emp-sel").addEventListener("change", (event) => {
@@ -205,6 +215,18 @@ function bindStaticEvents() {
   document.getElementById("manager-usage-max").addEventListener("input", (event) => {
     ui.managerFilter.usageMax = event.target.value;
     renderManager();
+  });
+
+  document.body.addEventListener("change", (event) => {
+    const moduleId = event.target.dataset.erpModuleId;
+    if (!moduleId) return;
+    const moduleState = getErpModuleState(moduleId);
+    if (event.target.dataset.erpOwner !== undefined) moduleState.ownerId = event.target.value;
+    if (event.target.dataset.erpDue !== undefined) moduleState.dueDate = event.target.value;
+    if (event.target.dataset.erpStatus !== undefined) moduleState.status = event.target.value;
+    if (event.target.dataset.erpNote !== undefined) moduleState.note = event.target.value.trim();
+    touchState(`ERP 모듈 설정 변경 (${moduleId})`);
+    renderErpView();
   });
 }
 
@@ -265,6 +287,7 @@ function normalizeState() {
     birthdayRule: defaultBirthdayRule(),
     activeLaborRuleYear: 2026,
     laborRuleCache: {},
+    erpModuleState: {},
     monthlyStandardHours: 209,
     defaultWorkHoursPerDay: 8,
     employmentRules: defaultEmploymentRules()
@@ -274,6 +297,7 @@ function normalizeState() {
   state.subLeaves = Array.isArray(state.subLeaves) ? state.subLeaves : [];
   state.specialLeaves = Array.isArray(state.specialLeaves) ? state.specialLeaves : [];
   state.hrRecords = state.hrRecords || {};
+  state.orgUnits = Array.isArray(state.orgUnits) ? state.orgUnits : [];
   state.auditLogs = Array.isArray(state.auditLogs) ? state.auditLogs : [];
   state.totals = state.totals || {};
   state.perms = state.perms || {};
@@ -306,6 +330,17 @@ function normalizeState() {
       };
     }
   });
+
+  if (!state.orgUnits.length) {
+    const depts = [...new Set(state.employees.map((employee) => employee.dept).filter(Boolean))];
+    state.orgUnits = depts.map((dept, index) => ({
+      id: `org_${index + 1}`,
+      name: dept,
+      parentId: "",
+      leaderId: "",
+      note: "직원 목록 기준 자동 생성"
+    }));
+  }
 }
 
 function initializeSelections() {
@@ -768,34 +803,302 @@ function renderDataHub() {
 function renderErpView() {
   const sections = {
     hr: [
-      "인사카드(기본/신상/경력/자격/학력/가족)",
-      "조직도(부서/직책/겸직)",
-      "인사발령(입사/전보/휴직/복직/퇴사)",
-      "승호/승진/승급 월 관리"
+      {
+        id: "hr-card",
+        title: "인사카드/신상관리",
+        desc: "직원 상세정보 등록/수정",
+        view: "hr"
+      },
+      {
+        id: "hr-org",
+        title: "조직도/직무배치",
+        desc: "부서 체계·팀장·구성원 운영",
+        view: "erp"
+      },
+      {
+        id: "hr-appointment",
+        title: "인사발령",
+        desc: "입사/전보/휴직/복직/퇴사 기록",
+        view: "hr"
+      },
+      {
+        id: "hr-promotion",
+        title: "승호/승진/승급 월 관리",
+        desc: "호봉/승진 시점 추적",
+        view: "hr"
+      }
     ],
     attendance: [
-      "연차/특별휴가/생일반차 자동부여",
-      "근태 마감(월 단위)",
-      "출퇴근/초과근무 연동"
+      {
+        id: "att-leave",
+        title: "연차/특별휴가 자동부여",
+        desc: "생일반차, 대체휴가 포함",
+        view: "spe"
+      },
+      {
+        id: "att-close",
+        title: "근태 월 마감",
+        desc: "월별 사용현황/잔여점검",
+        view: "mgr"
+      },
+      {
+        id: "att-overtime",
+        title: "출퇴근/초과근무 연동",
+        desc: "초과근무 기록 통합",
+        view: "office"
+      }
     ],
     payroll: [
-      "급여항목 템플릿(기본급/수당/공제)",
-      "4대보험/원천세 계산",
-      "지급명세서/원천징수 신고 데이터 출력",
-      "퇴직금(평균임금/통상임금 시나리오)"
+      {
+        id: "pay-template",
+        title: "급여항목 템플릿",
+        desc: "기본급/수당/공제 테이블",
+        view: "hr"
+      },
+      {
+        id: "pay-tax",
+        title: "4대보험/원천세 계산",
+        desc: "자동/수동 세율 계산",
+        view: "hr"
+      },
+      {
+        id: "pay-export",
+        title: "지급명세서 데이터 출력",
+        desc: "엑셀 내보내기",
+        view: "datahub"
+      },
+      {
+        id: "pay-retire",
+        title: "퇴직금 시뮬레이션",
+        desc: "평균임금/통상임금 비교",
+        view: "hr"
+      }
     ],
     compliance: [
-      "법정의무교육 대상/이수현황",
-      "미이수 알림/이력",
-      "취업규칙/노사 문서 관리",
-      "개인정보 접근권한 + 접근로그",
-      "변경이력(Audit trail), 백업/복구 + 버전 롤백"
+      {
+        id: "comp-edu",
+        title: "법정의무교육 이수현황",
+        desc: "직원별 완료체크/누락점검",
+        view: "hr"
+      },
+      {
+        id: "comp-alert",
+        title: "미이수 알림/이력",
+        desc: "위험 인원 필터링",
+        view: "mgr"
+      },
+      {
+        id: "comp-doc",
+        title: "노사 문서 관리",
+        desc: "규정/문서 백업",
+        view: "sync"
+      },
+      {
+        id: "comp-perm",
+        title: "개인정보 접근권한",
+        desc: "권한표/접근범위 관리",
+        view: "perm"
+      },
+      {
+        id: "comp-audit",
+        title: "감사로그 + 버전 롤백",
+        desc: "변경이력, 스냅샷 복구",
+        view: "sync"
+      }
     ]
   };
-  document.getElementById("erp-hr-core").innerHTML = sections.hr.map((item) => `<div class="row-item"><div class="row-title">${item}</div></div>`).join("");
-  document.getElementById("erp-attendance").innerHTML = sections.attendance.map((item) => `<div class="row-item"><div class="row-title">${item}</div></div>`).join("");
-  document.getElementById("erp-payroll").innerHTML = sections.payroll.map((item) => `<div class="row-item"><div class="row-title">${item}</div></div>`).join("");
-  document.getElementById("erp-compliance").innerHTML = sections.compliance.map((item) => `<div class="row-item"><div class="row-title">${item}</div></div>`).join("");
+  renderOrgUnitForm();
+  document.getElementById("org-unit-list").innerHTML = renderOrgUnitRows();
+  document.getElementById("erp-hr-core").innerHTML = sections.hr.map((item) => renderErpModuleRow(item)).join("");
+  document.getElementById("erp-attendance").innerHTML = sections.attendance.map((item) => renderErpModuleRow(item)).join("");
+  document.getElementById("erp-payroll").innerHTML = sections.payroll.map((item) => renderErpModuleRow(item)).join("");
+  document.getElementById("erp-compliance").innerHTML = sections.compliance.map((item) => renderErpModuleRow(item)).join("");
+}
+
+function renderErpModuleRow(module) {
+  const moduleState = getErpModuleState(module.id);
+  const ownerName = moduleState.ownerId ? (findEmployee(moduleState.ownerId)?.name || "미지정") : "담당자 미지정";
+  return `
+    <div class="row-item col">
+      <div class="row-main">
+        <div class="row-title">${module.title}</div>
+        <div class="row-desc">${module.desc}</div>
+      </div>
+      <div class="erp-module-meta">
+        <select class="field" data-erp-module-id="${module.id}" data-erp-owner>
+          <option value="">담당자</option>
+          ${state.employees.map((employee) => `<option value="${employee.id}" ${moduleState.ownerId === employee.id ? "selected" : ""}>${employee.name}</option>`).join("")}
+        </select>
+        <select class="field" data-erp-module-id="${module.id}" data-erp-status>
+          ${["plan", "doing", "done", "hold"].map((status) => `<option value="${status}" ${moduleState.status === status ? "selected" : ""}>${erpStatusLabel(status)}</option>`).join("")}
+        </select>
+        <input class="field" type="date" data-erp-module-id="${module.id}" data-erp-due value="${moduleState.dueDate || ""}">
+        <input class="field" type="text" placeholder="메모" data-erp-module-id="${module.id}" data-erp-note value="${moduleState.note || ""}">
+      </div>
+      <div class="row-item-actions">
+        <span class="tag ${erpStatusTag(moduleState.status)}">${erpStatusLabel(moduleState.status)} · ${ownerName}</span>
+        <button class="btn ghost small" data-action="open-erp-menu" data-view="${module.view}">메뉴 열기</button>
+        <button class="btn primary small" data-action="toggle-erp-module" data-erp-module-id="${module.id}">${moduleState.enabled ? "사용중" : "비활성"}</button>
+      </div>
+    </div>
+  `;
+}
+
+function getErpModuleState(moduleId) {
+  state.settings.erpModuleState = state.settings.erpModuleState || {};
+  if (!state.settings.erpModuleState[moduleId]) {
+    state.settings.erpModuleState[moduleId] = {
+      enabled: true,
+      ownerId: "",
+      dueDate: "",
+      status: "plan",
+      note: ""
+    };
+  }
+  return state.settings.erpModuleState[moduleId];
+}
+
+function toggleErpModule(moduleId) {
+  if (!moduleId) return;
+  const moduleState = getErpModuleState(moduleId);
+  moduleState.enabled = !moduleState.enabled;
+  touchState(`ERP 모듈 ${moduleId} ${moduleState.enabled ? "활성화" : "비활성화"}`);
+  renderErpView();
+}
+
+function erpStatusLabel(status) {
+  if (status === "doing") return "진행중";
+  if (status === "done") return "완료";
+  if (status === "hold") return "보류";
+  return "계획";
+}
+
+function erpStatusTag(status) {
+  if (status === "doing") return "blue";
+  if (status === "done") return "green";
+  if (status === "hold") return "amber";
+  return "purple";
+}
+
+function renderOrgUnitForm() {
+  const parentSelect = document.getElementById("org-parent-id");
+  const leaderSelect = document.getElementById("org-leader-id");
+  parentSelect.innerHTML = `<option value="">상위부서(없음)</option>${state.orgUnits.map((unit) => `<option value="${unit.id}">${unit.name}</option>`).join("")}`;
+  leaderSelect.innerHTML = `<option value="">팀장 선택</option>${state.employees.map((employee) => `<option value="${employee.id}">${employee.name}</option>`).join("")}`;
+  document.getElementById("org-edit-id").value = ui.orgEditId || "";
+}
+
+function renderOrgUnitRows() {
+  if (!state.orgUnits.length) return emptyState("등록된 부서가 없습니다. 자동구성 또는 신규 등록을 해주세요.");
+  return state.orgUnits.map((unit) => {
+    const members = state.employees.filter((employee) => employee.dept === unit.name);
+    const leaderName = unit.leaderId ? (findEmployee(unit.leaderId)?.name || "미지정") : "미지정";
+    const parent = unit.parentId ? state.orgUnits.find((item) => item.id === unit.parentId)?.name || "-" : "최상위";
+    return `
+      <div class="row-item col">
+        <div class="row-main">
+          <div class="row-title">${unit.name} <span class="tag blue">${members.length}명</span></div>
+          <div class="row-desc">상위부서: ${parent} · 팀장: ${leaderName}</div>
+          <div class="org-members">구성원: ${members.length ? members.map((member) => member.name).join(", ") : "없음"}${unit.note ? ` · 메모: ${unit.note}` : ""}</div>
+        </div>
+        <div class="row-item-actions">
+          <button class="btn ghost small" data-action="edit-org-unit" data-org-unit-id="${unit.id}">수정</button>
+          <button class="btn ghost small" data-action="delete-org-unit" data-org-unit-id="${unit.id}">삭제</button>
+          <button class="btn primary small" data-action="open-erp-menu" data-view="emp">직원목록 열기</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function saveOrgUnit() {
+  const editId = document.getElementById("org-edit-id").value;
+  const name = document.getElementById("org-unit-name").value.trim();
+  const parentId = document.getElementById("org-parent-id").value;
+  const leaderId = document.getElementById("org-leader-id").value;
+  const note = document.getElementById("org-unit-note").value.trim();
+  if (!name) {
+    alert("부서명을 입력해주세요.");
+    return;
+  }
+  const duplicate = state.orgUnits.some((unit) => unit.name === name && unit.id !== editId);
+  if (duplicate) {
+    alert("같은 부서명이 이미 있습니다.");
+    return;
+  }
+  if (editId) {
+    const target = state.orgUnits.find((unit) => unit.id === editId);
+    if (!target) return;
+    target.name = name;
+    target.parentId = parentId && parentId !== editId ? parentId : "";
+    target.leaderId = leaderId;
+    target.note = note;
+  } else {
+    state.orgUnits.push({
+      id: `org_${Date.now()}`,
+      name,
+      parentId,
+      leaderId,
+      note
+    });
+  }
+  touchState(`조직도 부서 저장 (${name})`);
+  resetOrgUnitForm(false);
+  renderErpView();
+}
+
+function resetOrgUnitForm(shouldRender = true) {
+  ui.orgEditId = "";
+  document.getElementById("org-edit-id").value = "";
+  document.getElementById("org-unit-name").value = "";
+  document.getElementById("org-parent-id").value = "";
+  document.getElementById("org-leader-id").value = "";
+  document.getElementById("org-unit-note").value = "";
+  if (shouldRender) renderErpView();
+}
+
+function editOrgUnit(unitId) {
+  const unit = state.orgUnits.find((item) => item.id === unitId);
+  if (!unit) return;
+  ui.orgEditId = unit.id;
+  renderOrgUnitForm();
+  document.getElementById("org-unit-name").value = unit.name || "";
+  document.getElementById("org-parent-id").value = unit.parentId || "";
+  document.getElementById("org-leader-id").value = unit.leaderId || "";
+  document.getElementById("org-unit-note").value = unit.note || "";
+}
+
+function deleteOrgUnit(unitId) {
+  const unit = state.orgUnits.find((item) => item.id === unitId);
+  if (!unit) return;
+  const usedByEmployees = state.employees.filter((employee) => employee.dept === unit.name);
+  if (usedByEmployees.length) {
+    alert(`해당 부서 소속 직원(${usedByEmployees.length}명)이 있어 삭제할 수 없습니다.`);
+    return;
+  }
+  state.orgUnits = state.orgUnits.filter((item) => item.id !== unitId).map((item) => {
+    if (item.parentId === unitId) item.parentId = "";
+    return item;
+  });
+  touchState(`조직도 부서 삭제 (${unit.name})`);
+  if (ui.orgEditId === unitId) ui.orgEditId = "";
+  renderErpView();
+}
+
+function autoBuildOrgUnits() {
+  const depts = [...new Set(state.employees.map((employee) => employee.dept).filter(Boolean))];
+  state.orgUnits = depts.map((dept) => {
+    const existing = state.orgUnits.find((unit) => unit.name === dept);
+    return {
+      id: existing?.id || `org_${Date.now()}_${dept}`,
+      name: dept,
+      parentId: existing?.parentId || "",
+      leaderId: existing?.leaderId || "",
+      note: existing?.note || "직원 목록 기준 자동동기화"
+    };
+  });
+  touchState("직원 목록 기준 조직도 자동구성");
+  renderErpView();
 }
 
 function saveBirthdayRule() {
