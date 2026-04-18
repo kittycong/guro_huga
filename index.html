@@ -284,7 +284,10 @@
 
               <label class="field-label" for="leave-unit-price">1일 연차 정산 단가 직접 입력</label>
               <input id="leave-unit-price" class="field" type="number" min="0" step="1000">
+              <label class="field-label" for="average-daily-wage">1일 평균임금(선택)</label>
+              <input id="average-daily-wage" class="field" type="number" min="0" step="1000">
 
+              <div class="hint-box">노동 계산기 방식 반영: 만1년 미만 월차(최대11일), 만1년 이상 15일 + 2년마다 1일(최대25일), 퇴사 시점까지 발생분 기준.</div>
               <div id="settlement-summary" class="hint-box"></div>
             </div>
           </div>

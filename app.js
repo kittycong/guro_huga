@@ -329,6 +329,7 @@ function normalizeState() {
     employee.monthlyBasePay = Number(employee.monthlyBasePay || 0);
     employee.workHoursPerDay = Number(employee.workHoursPerDay || state.settings.defaultWorkHoursPerDay || 8);
     employee.leaveUnitPrice = Number(employee.leaveUnitPrice || 0);
+    employee.averageDailyWage = Number(employee.averageDailyWage || 0);
     if (!state.perms[employee.id]) {
       state.perms[employee.id] = {
         grade: index === 0 ? "admin" : "normal",
@@ -633,6 +634,7 @@ function renderSettings() {
   document.getElementById("work-hours-per-day").value = selected.workHoursPerDay || state.settings.defaultWorkHoursPerDay || 8;
   document.getElementById("monthly-standard-hours").value = state.settings.monthlyStandardHours || 209;
   document.getElementById("leave-unit-price").value = selected.leaveUnitPrice || "";
+  document.getElementById("average-daily-wage").value = selected.averageDailyWage || "";
   document.getElementById("employment-rules").value = state.settings.employmentRules || defaultEmploymentRules();
   const years = allYears();
   const auto = accrual(selected.joinDate, ui.currentYear, selected.fiscalYearMonth);
@@ -2500,34 +2502,73 @@ function leaveDelta(type) {
 
 function calcRetirementPayout(empId, year) {
   const employee = employeeById(empId);
-  const summary = employeeSummary(empId, year);
-  const monthlyBasePay = Number(employee?.monthlyBasePay || 0);
-  const workHoursPerDay = Number(employee?.workHoursPerDay || state.settings.defaultWorkHoursPerDay || 8);
+  if (!employee) {
+    return { remainingDays: 0, unitPrice: 0, amount: 0, formula: "-", note: "직원 정보가 없습니다." };
+  }
+
+  const joinDate = employee.joinDate ? new Date(employee.joinDate) : null;
+  const resignDate = employee.resignationDate ? new Date(employee.resignationDate) : null;
+  const refDate = resignDate || new Date(year, 11, 31);
+  const accruedDays = calculateAccruedLeaveUntilDate(joinDate, refDate);
+  const usedDays = sumUsedLeaveUntilDate(empId, refDate);
+  const remainingDays = Math.max(0, accruedDays - usedDays);
+
+  const monthlyBasePay = Number(employee.monthlyBasePay || 0);
+  const workHoursPerDay = Number(employee.workHoursPerDay || state.settings.defaultWorkHoursPerDay || 8);
   const monthlyStandardHours = Number(state.settings.monthlyStandardHours || 209);
-  const directUnitPrice = Number(employee?.leaveUnitPrice || 0);
+  const ordinaryDaily = monthlyBasePay > 0 ? (monthlyBasePay / monthlyStandardHours) * workHoursPerDay : 0;
+  const averageDaily = Number(employee.averageDailyWage || 0);
+  const directUnitPrice = Number(employee.leaveUnitPrice || 0);
 
   let unitPrice = 0;
-  let formula = "1일 정산 단가를 직접 입력하거나 월 통상임금을 입력하면 계산됩니다.";
-  let note = "퇴사 정산 참고용 계산입니다.";
-
+  let note = "통상임금 1일액/평균임금 1일액 중 유리한 금액 기준.";
   if (directUnitPrice > 0) {
     unitPrice = directUnitPrice;
-    formula = "미사용 연차 × 직접 입력한 1일 연차 정산 단가";
-    note = "직접 입력한 단가를 우선 사용했습니다.";
-  } else if (monthlyBasePay > 0) {
-    const hourlyPay = monthlyBasePay / monthlyStandardHours;
-    unitPrice = hourlyPay * workHoursPerDay;
-    formula = `미사용 연차 × (월 통상임금 ${monthlyBasePay.toLocaleString("ko-KR")}원 ÷ ${monthlyStandardHours}시간 × ${workHoursPerDay}시간)`;
-    note = "월 통상임금 기준으로 1일 정산 단가를 계산했습니다.";
+    note = "직접 입력 단가를 우선 적용했습니다.";
+  } else {
+    unitPrice = Math.max(ordinaryDaily, averageDaily);
   }
 
   return {
-    remainingDays: Math.max(0, summary.remain),
+    remainingDays,
     unitPrice,
-    amount: Math.round(Math.max(0, summary.remain) * unitPrice),
-    formula,
-    note
+    amount: Math.round(remainingDays * unitPrice),
+    formula: `미사용연차(${remainingDays.toFixed(2)}일) × 1일 단가(${Math.round(unitPrice).toLocaleString("ko-KR")}원)`,
+    note: `${note} · 발생 ${accruedDays.toFixed(2)}일 / 사용 ${usedDays.toFixed(2)}일`
   };
+}
+
+function calculateAccruedLeaveUntilDate(joinDate, targetDate) {
+  if (!joinDate || Number.isNaN(joinDate.getTime()) || !targetDate || Number.isNaN(targetDate.getTime())) return 0;
+  if (targetDate < joinDate) return 0;
+  let total = 0;
+  let cursor = new Date(joinDate);
+  const firstAnniversary = new Date(joinDate);
+  firstAnniversary.setFullYear(firstAnniversary.getFullYear() + 1);
+
+  while (cursor < targetDate) {
+    const nextMonth = new Date(cursor);
+    nextMonth.setMonth(nextMonth.getMonth() + 1);
+    if (nextMonth <= targetDate && nextMonth <= firstAnniversary) total += 1;
+    cursor = nextMonth;
+  }
+  total = Math.min(total, 11);
+
+  let yearlyCursor = new Date(firstAnniversary);
+  while (yearlyCursor <= targetDate) {
+    const yearsCompleted = yearlyCursor.getFullYear() - joinDate.getFullYear();
+    const annualBase = Math.min(15 + Math.floor(Math.max(0, yearsCompleted - 1) / 2), 25);
+    total += annualBase;
+    yearlyCursor.setFullYear(yearlyCursor.getFullYear() + 1);
+  }
+  return total;
+}
+
+function sumUsedLeaveUntilDate(empId, targetDate) {
+  const limit = formatDateKey(targetDate);
+  return state.records
+    .filter((record) => record.empId === empId && record.date <= limit)
+    .reduce((sum, record) => sum + Math.max(0, leaveDelta(record.type)), 0);
 }
 
 function saveSettingsFromView() {
@@ -2541,6 +2582,7 @@ function saveSettingsFromView() {
   const workHoursPerDay = Number(document.getElementById("work-hours-per-day").value || state.settings.defaultWorkHoursPerDay || 8);
   const monthlyStandardHours = Number(document.getElementById("monthly-standard-hours").value || 209);
   const leaveUnitPrice = Number(document.getElementById("leave-unit-price").value || 0);
+  const averageDailyWage = Number(document.getElementById("average-daily-wage").value || 0);
   const employmentRules = document.getElementById("employment-rules").value.trim() || defaultEmploymentRules();
 
   employee.joinDate = joinDate;
@@ -2549,6 +2591,7 @@ function saveSettingsFromView() {
   employee.monthlyBasePay = monthlyBasePay;
   employee.workHoursPerDay = workHoursPerDay;
   employee.leaveUnitPrice = leaveUnitPrice;
+  employee.averageDailyWage = averageDailyWage;
   state.settings.monthlyStandardHours = monthlyStandardHours;
   state.settings.employmentRules = employmentRules;
 
@@ -2590,7 +2633,8 @@ function exportExcelSnapshot() {
       사용률: `${summary.usagePercent}%`,
       월통상임금: employee.monthlyBasePay || 0,
       일근로시간: employee.workHoursPerDay || 0,
-      일정산단가: employee.leaveUnitPrice || 0
+      일정산단가: employee.leaveUnitPrice || 0,
+      일평균임금: employee.averageDailyWage || 0
     };
   });
 
@@ -2607,7 +2651,8 @@ function exportExcelSnapshot() {
     퇴사일: employee.resignationDate || "",
     월통상임금: employee.monthlyBasePay || 0,
     일근로시간: employee.workHoursPerDay || 0,
-    일정산단가: employee.leaveUnitPrice || 0
+    일정산단가: employee.leaveUnitPrice || 0,
+    일평균임금: employee.averageDailyWage || 0
   }));
 
   const subLeaveRows = state.subLeaves.map((item) => ({
@@ -2980,7 +3025,8 @@ function mergeEmployeesFromExcel(rows) {
       resignationDate: normalizeDateCell(row["퇴사일"]),
       monthlyBasePay: Number(row["월통상임금"] || existing?.monthlyBasePay || 0),
       workHoursPerDay: Number(row["일근로시간"] || existing?.workHoursPerDay || state.settings.defaultWorkHoursPerDay || 8),
-      leaveUnitPrice: Number(row["일정산단가"] || existing?.leaveUnitPrice || 0)
+      leaveUnitPrice: Number(row["일정산단가"] || existing?.leaveUnitPrice || 0),
+      averageDailyWage: Number(row["일평균임금"] || existing?.averageDailyWage || 0)
     };
 
     if (existing) {
