@@ -310,6 +310,28 @@ button {
   flex-wrap: wrap;
 }
 
+.chip-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.chip-btn {
+  border: 1px solid rgba(38, 23, 28, 0.14);
+  background: #fff;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.chip-btn.active {
+  background: var(--ink);
+  color: #fff;
+}
+
 .btn,
 .icon-btn {
   border: none;

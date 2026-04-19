@@ -29,6 +29,7 @@ const STORAGE_KEYS = {
 
 const MENU_DEFS = [
   { key: "dashboard", label: "대시보드" },
+  { key: "leave", label: "휴가 통합" },
   { key: "cal", label: "달력 보기" },
   { key: "hist", label: "사용 내역" },
   { key: "set", label: "연차 설정" },
@@ -54,6 +55,7 @@ const ui = {
   settingsEmployeeId: "",
   subEmployeeId: "",
   specialEmployeeId: "",
+  leaveTab: "overview",
   orgEditId: "",
   managerFilter: { search: "", dept: "", risk: "all", usageMin: "", usageMax: "" },
   modalType: ""
@@ -75,9 +77,10 @@ let state = {
     promotionMaxUsagePercent: 40,
     opsMemo: "",
     welfareStandard: defaultWelfareStandard(),
-    payGradeTable: [],
+    payGradeTable: defaultSeoulPayGradeTable2026(),
     hometaxRate: 0,
     localTaxRate: 10,
+    allowanceRules: defaultAllowanceRules(),
     birthdayRule: defaultBirthdayRule(),
     activeLaborRuleYear: 2026,
     laborRuleCache: {}
@@ -147,6 +150,7 @@ function bindStaticEvents() {
     if (action === "save-welfare-template") saveWelfareTemplate();
     if (action === "add-pay-grade-row") addPayGradeRow();
     if (action === "save-pay-grade-table") savePayGradeTable();
+    if (action === "apply-seoul-pay-template") applySeoulPayTemplate();
     if (action === "export-category-excel") exportCategoryExcel();
     if (action === "import-category-excel") document.getElementById("category-excel-import-input").click();
     if (action === "download-current-snapshot") downloadCurrentSnapshot();
@@ -164,6 +168,7 @@ function bindStaticEvents() {
     if (action === "edit-org-unit") editOrgUnit(actionElement.dataset.orgUnitId);
     if (action === "delete-org-unit") deleteOrgUnit(actionElement.dataset.orgUnitId);
     if (action === "toggle-erp-module") toggleErpModule(actionElement.dataset.erpModuleId);
+    if (action === "switch-leave-tab") switchLeaveTab(actionElement.dataset.leaveTab || "overview");
   });
 
   document.getElementById("emp-sel").addEventListener("change", (event) => {
@@ -281,9 +286,10 @@ function normalizeState() {
     promotionMaxUsagePercent: 40,
     opsMemo: "",
     welfareStandard: defaultWelfareStandard(),
-    payGradeTable: [],
+    payGradeTable: defaultSeoulPayGradeTable2026(),
     hometaxRate: 0,
     localTaxRate: 10,
+    allowanceRules: defaultAllowanceRules(),
     birthdayRule: defaultBirthdayRule(),
     activeLaborRuleYear: 2026,
     laborRuleCache: {},
@@ -323,6 +329,7 @@ function normalizeState() {
     employee.monthlyBasePay = Number(employee.monthlyBasePay || 0);
     employee.workHoursPerDay = Number(employee.workHoursPerDay || state.settings.defaultWorkHoursPerDay || 8);
     employee.leaveUnitPrice = Number(employee.leaveUnitPrice || 0);
+    employee.averageDailyWage = Number(employee.averageDailyWage || 0);
     if (!state.perms[employee.id]) {
       state.perms[employee.id] = {
         grade: index === 0 ? "admin" : "normal",
@@ -364,6 +371,7 @@ function renderAll() {
 function renderActiveView() {
   const viewRenderers = {
     dashboard: renderDashboard,
+    leave: renderLeaveHub,
     cal: renderCalendarView,
     hist: renderHistory,
     set: renderSettings,
@@ -476,6 +484,103 @@ function renderDashboard() {
     : emptyState("아직 기록된 변경 로그가 없습니다.");
 }
 
+function renderLeaveHub() {
+  renderLeaveHubTabs();
+  const year = ui.currentYear;
+  const summaries = state.employees.map((employee) => employeeSummary(employee.id, year));
+  const root = document.getElementById("leave-hub-content");
+  if (!root) return;
+  if (ui.leaveTab === "overview") {
+    root.innerHTML = renderLeaveOverviewTable(summaries);
+    return;
+  }
+  if (ui.leaveTab === "sub") {
+    root.innerHTML = renderLeaveSubTable();
+    return;
+  }
+  root.innerHTML = renderLeaveSpecialTable();
+}
+
+function renderLeaveHubTabs() {
+  const tabRoot = document.getElementById("leave-hub-tabs");
+  if (!tabRoot) return;
+  const tabs = [
+    ["overview", "연차 오버뷰"],
+    ["sub", "대체휴가"],
+    ["special", "특별휴가"]
+  ];
+  tabRoot.innerHTML = tabs.map(([key, label]) => `
+    <button class="chip-btn${ui.leaveTab === key ? " active" : ""}" data-action="switch-leave-tab" data-leave-tab="${key}">${label}</button>
+  `).join("");
+}
+
+function switchLeaveTab(tab) {
+  ui.leaveTab = tab;
+  renderLeaveHub();
+}
+
+function renderLeaveOverviewTable(summaries) {
+  return `
+    <div class="kpi-grid">
+      ${kpiCard("white", "직원 수", `${summaries.length}`, "명", `${ui.currentYear}년 기준`)}
+      ${kpiCard("green", "총 생성", `${summaries.reduce((sum, item) => sum + item.total, 0).toFixed(1)}`, "일", "연차 기준")}
+      ${kpiCard("amber", "총 사용", `${summaries.reduce((sum, item) => sum + item.used, 0).toFixed(1)}`, "일", "연차 기준")}
+      ${kpiCard("primary", "총 잔여", `${summaries.reduce((sum, item) => sum + item.remain, 0).toFixed(1)}`, "일", "연차 기준")}
+    </div>
+    <div class="card">
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>직원</th><th>부서</th><th>생성</th><th>사용</th><th>잔여</th><th>사용률</th><th>상태</th></tr></thead>
+          <tbody>
+            ${summaries.map((item) => `<tr>
+              <td>${employeeCell(item.employee)}</td>
+              <td>${item.employee.dept || "-"}</td>
+              <td>${item.total.toFixed(1)}</td>
+              <td>${item.used.toFixed(1)}</td>
+              <td>${item.remain.toFixed(1)}</td>
+              <td>${item.usagePercent}%</td>
+              <td><span class="tag ${item.alertLevel === "safe" ? "green" : "amber"}">${item.alertLabel}</span></td>
+            </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function renderLeaveSubTable() {
+  const rows = [...state.subLeaves].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  return renderLeaveTxTable("대체휴가", rows);
+}
+
+function renderLeaveSpecialTable() {
+  const rows = [...state.specialLeaves].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  return renderLeaveTxTable("특별휴가", rows);
+}
+
+function renderLeaveTxTable(title, rows) {
+  return `
+    <div class="card">
+      <div class="card-head"><div class="card-title">${title} 기록</div></div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>일자</th><th>직원</th><th>구분</th><th>일수</th><th>사유</th><th>메모</th></tr></thead>
+          <tbody>
+            ${rows.length ? rows.map((item) => `<tr>
+              <td>${item.date || "-"}</td>
+              <td>${findEmployee(item.empId)?.name || "-"}</td>
+              <td>${item.action === "grant" ? "부여" : "사용"}</td>
+              <td>${Number(item.days || 0).toFixed(1)}</td>
+              <td>${item.reason || "-"}</td>
+              <td>${item.memo || item.evidence || "-"}</td>
+            </tr>`).join("") : `<tr><td colspan="6">${emptyState("기록이 없습니다.")}</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
 function renderCalendarView() {
   const employee = currentUser();
   if (!employee) return;
@@ -529,6 +634,7 @@ function renderSettings() {
   document.getElementById("work-hours-per-day").value = selected.workHoursPerDay || state.settings.defaultWorkHoursPerDay || 8;
   document.getElementById("monthly-standard-hours").value = state.settings.monthlyStandardHours || 209;
   document.getElementById("leave-unit-price").value = selected.leaveUnitPrice || "";
+  document.getElementById("average-daily-wage").value = selected.averageDailyWage || "";
   document.getElementById("employment-rules").value = state.settings.employmentRules || defaultEmploymentRules();
   const years = allYears();
   const auto = accrual(selected.joinDate, ui.currentYear, selected.fiscalYearMonth);
@@ -759,11 +865,12 @@ function renderHrView() {
     const calculatedPay = calculatePayByGrade(record.payGrade, record.payLevel, record.payStep);
     const basePay = Number(record.monthlySalary || calculatedPay || 0);
     const autoTax = calculateAutoTax(basePay);
+    const allowance = calculateAllowancePackage(record, basePay);
     return `
       <tr>
         <td>${employeeCell(employee)}</td>
-        <td><input class="field" type="text" value="${record.payGrade || ""}" data-pay-grade="${employee.id}" placeholder="예: 사회복지직"></td>
-        <td><input class="field" type="text" value="${record.payLevel || ""}" data-pay-level="${employee.id}" placeholder="예: 6급"></td>
+        <td><input class="field" type="text" value="${record.payGrade || ""}" data-pay-grade="${employee.id}" placeholder="예: 일반직/관리직/기능직"></td>
+        <td><input class="field" type="text" value="${record.payLevel || ""}" data-pay-level="${employee.id}" placeholder="예: 1급~5급"></td>
         <td><input class="field" type="number" min="1" step="1" value="${record.payStep || ""}" data-pay-step="${employee.id}" placeholder="예: 3"></td>
         <td><input class="field" type="number" min="0" step="10000" value="${basePay}" data-pay-salary="${employee.id}"></td>
         <td>
@@ -775,6 +882,14 @@ function renderHrView() {
         <td><input class="field" type="number" min="0" max="100" step="0.01" value="${record.manualTaxRate || 0}" data-pay-tax-rate="${employee.id}"></td>
         <td><input class="field" type="number" min="0" step="1000" value="${record.taxMode === "manual" ? (record.withholdingTax || 0) : autoTax}" data-pay-tax="${employee.id}"></td>
         <td><input class="field" type="number" min="0" step="1000" value="${record.socialInsurance || 0}" data-pay-insurance="${employee.id}"></td>
+        <td><input class="field" type="number" min="0" step="1" value="${record.spouseCount || 0}" data-pay-spouse="${employee.id}"></td>
+        <td><input class="field" type="number" min="0" step="1" value="${record.childCount || 0}" data-pay-child="${employee.id}"></td>
+        <td><input class="field" type="number" min="0" step="1" value="${record.otherDependentCount || 0}" data-pay-other="${employee.id}"></td>
+        <td><input class="field" type="number" min="0" step="1000" value="${record.adjustmentAllowance || 0}" data-pay-adjust="${employee.id}"></td>
+        <td><input class="field" type="number" min="0" step="1" value="${record.overtimeHours || 0}" data-pay-ot="${employee.id}"></td>
+        <td><input class="field" type="number" min="0" step="1" value="${record.holidayOvertimeHours || 0}" data-pay-hot="${employee.id}"></td>
+        <td>${Math.round(allowance.totalAllowance).toLocaleString("ko-KR")}</td>
+        <td>${Math.round(allowance.ordinaryWage).toLocaleString("ko-KR")}</td>
         <td><input class="field" type="number" min="0" step="10000" value="${record.severanceEstimate || 0}" data-pay-severance="${employee.id}"></td>
         <td><label class="checkbox-row"><input type="checkbox" data-pay-edu="${employee.id}" ${record.mandatoryEduDone ? "checked" : ""}><span>이수</span></label></td>
       </tr>
@@ -792,6 +907,16 @@ function renderHrView() {
   document.getElementById("birthday-min-months").value = birthdayRule.minMonths;
   document.getElementById("labor-rule-year").value = String(state.settings.activeLaborRuleYear || 2026);
   document.getElementById("labor-rule-log").textContent = state.settings.laborRuleLog || "룰 로드/시뮬레이션 결과가 표시됩니다.";
+  const allowance = state.settings.allowanceRules || defaultAllowanceRules();
+  document.getElementById("allow-meal").value = allowance.meal || 140000;
+  document.getElementById("allow-manager").value = allowance.manager || 220000;
+  document.getElementById("allow-spouse").value = allowance.spouse || 40000;
+  document.getElementById("allow-child1").value = allowance.child1 || 50000;
+  document.getElementById("allow-child2").value = allowance.child2 || 80000;
+  document.getElementById("allow-child3").value = allowance.child3Plus || 120000;
+  document.getElementById("allow-other").value = allowance.otherDependent || 20000;
+  document.getElementById("allow-adjustment").value = allowance.defaultAdjustment || 0;
+  document.getElementById("allowance-preview").textContent = `서울시 2026 기준값: 정액급식비 월 ${Number(allowance.meal || 0).toLocaleString("ko-KR")}원, 관리자수당 월 ${Number(allowance.manager || 0).toLocaleString("ko-KR")}원, 시간외수당 1.5배/휴일8시간초과 2배`;
   renderPayGradeTable();
 }
 
@@ -909,6 +1034,7 @@ function renderErpView() {
   };
   renderOrgUnitForm();
   document.getElementById("org-unit-list").innerHTML = renderOrgUnitRows();
+  document.getElementById("org-tree-view").innerHTML = renderOrgTree();
   document.getElementById("erp-hr-core").innerHTML = sections.hr.map((item) => renderErpModuleRow(item)).join("");
   document.getElementById("erp-attendance").innerHTML = sections.attendance.map((item) => renderErpModuleRow(item)).join("");
   document.getElementById("erp-payroll").innerHTML = sections.payroll.map((item) => renderErpModuleRow(item)).join("");
@@ -1009,6 +1135,29 @@ function renderOrgUnitRows() {
       </div>
     `;
   }).join("");
+}
+
+function renderOrgTree() {
+  if (!state.orgUnits.length) return emptyState("부서를 먼저 등록해주세요.");
+  const childrenMap = new Map();
+  state.orgUnits.forEach((unit) => {
+    const key = unit.parentId || "root";
+    if (!childrenMap.has(key)) childrenMap.set(key, []);
+    childrenMap.get(key).push(unit);
+  });
+  const renderNode = (unit, depth = 0) => {
+    const members = state.employees.filter((employee) => employee.dept === unit.name);
+    const indent = depth * 18;
+    const self = `
+      <div class="row-item col" style="margin-left:${indent}px">
+        <div class="row-title">${"└ ".repeat(depth)}${unit.name}</div>
+        <div class="row-desc">팀장: ${unit.leaderId ? (findEmployee(unit.leaderId)?.name || "미지정") : "미지정"} · 인원 ${members.length}명</div>
+      </div>
+    `;
+    const children = (childrenMap.get(unit.id) || []).map((child) => renderNode(child, depth + 1)).join("");
+    return self + children;
+  };
+  return (childrenMap.get("root") || []).map((unit) => renderNode(unit, 0)).join("");
 }
 
 function saveOrgUnit() {
@@ -1186,7 +1335,7 @@ function renderPermissions() {
             <option value="limit" ${grade === "limit" ? "selected" : ""}>제한</option>
           </select>
         </td>
-        ${["dashboard", "cal", "hist", "set", "emp", "mgr", "sub", "spe", "office", "hr", "datahub", "erp", "sync"].map((menu) => `
+        ${["dashboard", "leave", "cal", "hist", "set", "emp", "mgr", "sub", "spe", "office", "hr", "datahub", "erp", "sync"].map((menu) => `
           <td>
             <input type="checkbox" data-menu-emp="${employee.id}" data-menu-key="${menu}" ${hasRawMenu(employee.id, menu) ? "checked" : ""}>
           </td>
@@ -2240,6 +2389,15 @@ function getHrRecord(empId, year) {
     manualTaxRate: 0,
     withholdingTax: 0,
     socialInsurance: 0,
+    spouseCount: 0,
+    childCount: 0,
+    otherDependentCount: 0,
+    adjustmentAllowance: 0,
+    overtimeHours: 0,
+    holidayOvertimeHours: 0,
+    totalAllowance: 0,
+    ordinaryWage: 0,
+    overtimeAllowance: 0,
     severanceEstimate: 0,
     mandatoryEduDone: false
   }, state.hrRecords[key] || {});
@@ -2271,6 +2429,39 @@ function defaultBirthdayRule() {
     days: 0.5,
     minMonths: 3
   };
+}
+
+function defaultAllowanceRules() {
+  return {
+    meal: 140000,
+    manager: 220000,
+    spouse: 40000,
+    child1: 50000,
+    child2: 80000,
+    child3Plus: 120000,
+    otherDependent: 20000,
+    defaultAdjustment: 0
+  };
+}
+
+function defaultSeoulPayGradeTable2026() {
+  const level2 = [3169000, 3239000, 3312000, 3390000, 3470000, 3563000, 3663000, 3763000, 3863000, 3963000, 4063000, 4163000, 4263000, 4363000, 4444000, 4524000, 4602000, 4672000, 4738000, 4802000, 4862000, 4923000, 4985000, 5046000, 5107000, 5170000, 5233000, 5296000, 5360000, 5424000, 5484000];
+  const level3 = [2703000, 2784000, 2872000, 2969000, 3068000, 3167000, 3266000, 3365000, 3475000, 3575000, 3675000, 3730000, 3785000, 3850000, 3915000, 4006000, 4073000, 4147000, 4212000, 4278000, 4339000, 4399000, 4454000, 4513000, 4568000, 4620000, 4681000, 4744000, 4807000, 4867000, 4917000];
+  const level4 = [2550000, 2577000, 2604000, 2631000, 2712000, 2812000, 2912000, 3004000, 3102000, 3202000, 3298000, 3359000, 3426000, 3494000, 3566000, 3637000, 3708000, 3776000, 3841000, 3902000, 3966000, 4020000, 4073000, 4122000, 4176000, 4223000, 4270000, 4317000, 4364000, 4411000, 4461000];
+  const level5 = [2518000, 2545000, 2572000, 2597000, 2618000, 2638000, 2659000, 2743000, 2842000, 2929000, 3008000, 3069000, 3148000, 3228000, 3281000, 3354000, 3401000, 3472000, 3530000, 3590000, 3644000, 3699000, 3748000, 3796000, 3843000, 3889000, 3935000, 3979000, 4023000, 4063000, 4113000];
+  const manager = [2492000, 2519000, 2546000, 2571000, 2593000, 2616000, 2643000, 2664000, 2761000, 2844000, 2941000, 2996000, 3053000, 3104000, 3162000, 3218000, 3265000, 3330000, 3388000, 3448000, 3527000, 3585000, 3639000, 3701000, 3740000, 3789000, 3839000, 3898000, 3960000, 4018000, 4078000];
+  const functional = [2466000, 2493000, 2520000, 2545000, 2567000, 2591000, 2618000, 2640000, 2661000, 2705000, 2780000, 2847000, 2893000, 2959000, 3010000, 3081000, 3157000, 3218000, 3272000, 3336000, 3410000, 3471000, 3530000, 3574000, 3629000, 3679000, 3729000, 3789000, 3849000, 3909000, 3969000];
+  const level1 = { 16: 4912000, 17: 4969000, 18: 5022000, 19: 5096000, 20: 5173000, 21: 5271000, 22: 5336000, 23: 5395000, 24: 5451000, 25: 5506000, 26: 5577000, 27: 5622000, 28: 5661000, 29: 5729000, 30: 5788000 };
+
+  const rows = [];
+  Object.entries(level1).forEach(([step, basePay]) => rows.push({ grade: "일반직", level: "1급", step: Number(step), basePay }));
+  level2.forEach((basePay, idx) => rows.push({ grade: "일반직", level: "2급", step: idx + 1, basePay }));
+  level3.forEach((basePay, idx) => rows.push({ grade: "일반직", level: "3급", step: idx + 1, basePay }));
+  level4.forEach((basePay, idx) => rows.push({ grade: "일반직", level: "4급", step: idx + 1, basePay }));
+  level5.forEach((basePay, idx) => rows.push({ grade: "일반직", level: "5급", step: idx + 1, basePay }));
+  manager.forEach((basePay, idx) => rows.push({ grade: "관리직", level: "관리직", step: idx + 1, basePay }));
+  functional.forEach((basePay, idx) => rows.push({ grade: "기능직", level: "기능직", step: idx + 1, basePay }));
+  return rows;
 }
 
 function recordsOnDate(empId, date) {
@@ -2311,34 +2502,73 @@ function leaveDelta(type) {
 
 function calcRetirementPayout(empId, year) {
   const employee = employeeById(empId);
-  const summary = employeeSummary(empId, year);
-  const monthlyBasePay = Number(employee?.monthlyBasePay || 0);
-  const workHoursPerDay = Number(employee?.workHoursPerDay || state.settings.defaultWorkHoursPerDay || 8);
+  if (!employee) {
+    return { remainingDays: 0, unitPrice: 0, amount: 0, formula: "-", note: "직원 정보가 없습니다." };
+  }
+
+  const joinDate = employee.joinDate ? new Date(employee.joinDate) : null;
+  const resignDate = employee.resignationDate ? new Date(employee.resignationDate) : null;
+  const refDate = resignDate || new Date(year, 11, 31);
+  const accruedDays = calculateAccruedLeaveUntilDate(joinDate, refDate);
+  const usedDays = sumUsedLeaveUntilDate(empId, refDate);
+  const remainingDays = Math.max(0, accruedDays - usedDays);
+
+  const monthlyBasePay = Number(employee.monthlyBasePay || 0);
+  const workHoursPerDay = Number(employee.workHoursPerDay || state.settings.defaultWorkHoursPerDay || 8);
   const monthlyStandardHours = Number(state.settings.monthlyStandardHours || 209);
-  const directUnitPrice = Number(employee?.leaveUnitPrice || 0);
+  const ordinaryDaily = monthlyBasePay > 0 ? (monthlyBasePay / monthlyStandardHours) * workHoursPerDay : 0;
+  const averageDaily = Number(employee.averageDailyWage || 0);
+  const directUnitPrice = Number(employee.leaveUnitPrice || 0);
 
   let unitPrice = 0;
-  let formula = "1일 정산 단가를 직접 입력하거나 월 통상임금을 입력하면 계산됩니다.";
-  let note = "퇴사 정산 참고용 계산입니다.";
-
+  let note = "통상임금 1일액/평균임금 1일액 중 유리한 금액 기준.";
   if (directUnitPrice > 0) {
     unitPrice = directUnitPrice;
-    formula = "미사용 연차 × 직접 입력한 1일 연차 정산 단가";
-    note = "직접 입력한 단가를 우선 사용했습니다.";
-  } else if (monthlyBasePay > 0) {
-    const hourlyPay = monthlyBasePay / monthlyStandardHours;
-    unitPrice = hourlyPay * workHoursPerDay;
-    formula = `미사용 연차 × (월 통상임금 ${monthlyBasePay.toLocaleString("ko-KR")}원 ÷ ${monthlyStandardHours}시간 × ${workHoursPerDay}시간)`;
-    note = "월 통상임금 기준으로 1일 정산 단가를 계산했습니다.";
+    note = "직접 입력 단가를 우선 적용했습니다.";
+  } else {
+    unitPrice = Math.max(ordinaryDaily, averageDaily);
   }
 
   return {
-    remainingDays: Math.max(0, summary.remain),
+    remainingDays,
     unitPrice,
-    amount: Math.round(Math.max(0, summary.remain) * unitPrice),
-    formula,
-    note
+    amount: Math.round(remainingDays * unitPrice),
+    formula: `미사용연차(${remainingDays.toFixed(2)}일) × 1일 단가(${Math.round(unitPrice).toLocaleString("ko-KR")}원)`,
+    note: `${note} · 발생 ${accruedDays.toFixed(2)}일 / 사용 ${usedDays.toFixed(2)}일`
   };
+}
+
+function calculateAccruedLeaveUntilDate(joinDate, targetDate) {
+  if (!joinDate || Number.isNaN(joinDate.getTime()) || !targetDate || Number.isNaN(targetDate.getTime())) return 0;
+  if (targetDate < joinDate) return 0;
+  let total = 0;
+  let cursor = new Date(joinDate);
+  const firstAnniversary = new Date(joinDate);
+  firstAnniversary.setFullYear(firstAnniversary.getFullYear() + 1);
+
+  while (cursor < targetDate) {
+    const nextMonth = new Date(cursor);
+    nextMonth.setMonth(nextMonth.getMonth() + 1);
+    if (nextMonth <= targetDate && nextMonth <= firstAnniversary) total += 1;
+    cursor = nextMonth;
+  }
+  total = Math.min(total, 11);
+
+  let yearlyCursor = new Date(firstAnniversary);
+  while (yearlyCursor <= targetDate) {
+    const yearsCompleted = yearlyCursor.getFullYear() - joinDate.getFullYear();
+    const annualBase = Math.min(15 + Math.floor(Math.max(0, yearsCompleted - 1) / 2), 25);
+    total += annualBase;
+    yearlyCursor.setFullYear(yearlyCursor.getFullYear() + 1);
+  }
+  return total;
+}
+
+function sumUsedLeaveUntilDate(empId, targetDate) {
+  const limit = formatDateKey(targetDate);
+  return state.records
+    .filter((record) => record.empId === empId && record.date <= limit)
+    .reduce((sum, record) => sum + Math.max(0, leaveDelta(record.type)), 0);
 }
 
 function saveSettingsFromView() {
@@ -2352,6 +2582,7 @@ function saveSettingsFromView() {
   const workHoursPerDay = Number(document.getElementById("work-hours-per-day").value || state.settings.defaultWorkHoursPerDay || 8);
   const monthlyStandardHours = Number(document.getElementById("monthly-standard-hours").value || 209);
   const leaveUnitPrice = Number(document.getElementById("leave-unit-price").value || 0);
+  const averageDailyWage = Number(document.getElementById("average-daily-wage").value || 0);
   const employmentRules = document.getElementById("employment-rules").value.trim() || defaultEmploymentRules();
 
   employee.joinDate = joinDate;
@@ -2360,6 +2591,7 @@ function saveSettingsFromView() {
   employee.monthlyBasePay = monthlyBasePay;
   employee.workHoursPerDay = workHoursPerDay;
   employee.leaveUnitPrice = leaveUnitPrice;
+  employee.averageDailyWage = averageDailyWage;
   state.settings.monthlyStandardHours = monthlyStandardHours;
   state.settings.employmentRules = employmentRules;
 
@@ -2401,7 +2633,8 @@ function exportExcelSnapshot() {
       사용률: `${summary.usagePercent}%`,
       월통상임금: employee.monthlyBasePay || 0,
       일근로시간: employee.workHoursPerDay || 0,
-      일정산단가: employee.leaveUnitPrice || 0
+      일정산단가: employee.leaveUnitPrice || 0,
+      일평균임금: employee.averageDailyWage || 0
     };
   });
 
@@ -2418,7 +2651,8 @@ function exportExcelSnapshot() {
     퇴사일: employee.resignationDate || "",
     월통상임금: employee.monthlyBasePay || 0,
     일근로시간: employee.workHoursPerDay || 0,
-    일정산단가: employee.leaveUnitPrice || 0
+    일정산단가: employee.leaveUnitPrice || 0,
+    일평균임금: employee.averageDailyWage || 0
   }));
 
   const subLeaveRows = state.subLeaves.map((item) => ({
@@ -2544,6 +2778,16 @@ function savePayrollInfoFromView() {
     const manualTax = record.monthlySalary * (record.manualTaxRate / 100);
     record.withholdingTax = Math.round(record.taxMode === "manual" ? manualTax : autoTax);
     record.socialInsurance = Number(document.querySelector(`[data-pay-insurance="${employee.id}"]`)?.value || 0);
+    record.spouseCount = Number(document.querySelector(`[data-pay-spouse="${employee.id}"]`)?.value || 0);
+    record.childCount = Number(document.querySelector(`[data-pay-child="${employee.id}"]`)?.value || 0);
+    record.otherDependentCount = Number(document.querySelector(`[data-pay-other="${employee.id}"]`)?.value || 0);
+    record.adjustmentAllowance = Number(document.querySelector(`[data-pay-adjust="${employee.id}"]`)?.value || 0);
+    record.overtimeHours = Number(document.querySelector(`[data-pay-ot="${employee.id}"]`)?.value || 0);
+    record.holidayOvertimeHours = Number(document.querySelector(`[data-pay-hot="${employee.id}"]`)?.value || 0);
+    const allowancePack = calculateAllowancePackage(record, record.monthlySalary);
+    record.totalAllowance = Math.round(allowancePack.totalAllowance);
+    record.ordinaryWage = Math.round(allowancePack.ordinaryWage);
+    record.overtimeAllowance = Math.round(allowancePack.overtimeAllowance);
     record.severanceEstimate = Number(document.querySelector(`[data-pay-severance="${employee.id}"]`)?.value || 0);
     record.mandatoryEduDone = !!document.querySelector(`[data-pay-edu="${employee.id}"]`)?.checked;
     state.hrRecords[`${employee.id}_${year}`] = record;
@@ -2592,13 +2836,24 @@ function savePayGradeTable() {
 
   state.settings.hometaxRate = Number(document.getElementById("hometax-rate").value || 0);
   state.settings.localTaxRate = Number(document.getElementById("local-tax-rate").value || 10);
+  state.settings.allowanceRules = {
+    meal: Number(document.getElementById("allow-meal").value || 0),
+    manager: Number(document.getElementById("allow-manager").value || 0),
+    spouse: Number(document.getElementById("allow-spouse").value || 0),
+    child1: Number(document.getElementById("allow-child1").value || 0),
+    child2: Number(document.getElementById("allow-child2").value || 0),
+    child3Plus: Number(document.getElementById("allow-child3").value || 0),
+    otherDependent: Number(document.getElementById("allow-other").value || 0),
+    defaultAdjustment: Number(document.getElementById("allow-adjustment").value || 0)
+  };
   touchState("직급/호봉 임금 테이블 저장");
   renderHrView();
 }
 
 function calculatePayByGrade(grade, level, step) {
   const table = state.settings.payGradeTable || [];
-  const found = table.find((item) => item.grade === grade && item.level === level && Number(item.step) === Number(step));
+  const found = table.find((item) => item.grade === grade && item.level === level && Number(item.step) === Number(step))
+    || table.find((item) => item.level === level && Number(item.step) === Number(step));
   return Number(found?.basePay || 0);
 }
 
@@ -2612,6 +2867,31 @@ function applyWelfareTemplate() {
   state.settings.welfareStandard = defaultWelfareStandard();
   touchState("서울시 사회복지시설 기준 템플릿 적용");
   renderHrView();
+}
+
+function applySeoulPayTemplate() {
+  state.settings.payGradeTable = defaultSeoulPayGradeTable2026();
+  state.settings.allowanceRules = defaultAllowanceRules();
+  touchState("2026 서울시 급여/제수당 템플릿 적용");
+  renderHrView();
+}
+
+function calculateAllowancePackage(record, basePay) {
+  const rule = state.settings.allowanceRules || defaultAllowanceRules();
+  const spouseCount = Number(record.spouseCount || 0);
+  const childCount = Number(record.childCount || 0);
+  const otherCount = Number(record.otherDependentCount || 0);
+  const childAllowance = (childCount >= 1 ? rule.child1 : 0) + (childCount >= 2 ? rule.child2 : 0) + (childCount >= 3 ? (childCount - 2) * rule.child3Plus : 0);
+  const familyAllowance = (spouseCount > 0 ? rule.spouse : 0) + childAllowance + (otherCount * rule.otherDependent);
+  const managerAllowance = record.payGrade === "관리직" ? rule.manager : 0;
+  const adjustment = Number(record.adjustmentAllowance || rule.defaultAdjustment || 0);
+  const meal = rule.meal;
+  const holidayBonusMonthly = basePay * 1.2 / 12;
+  const ordinaryWage = basePay + meal + adjustment + holidayBonusMonthly;
+  const hourly = ordinaryWage / 209;
+  const overtimeAllowance = (Number(record.overtimeHours || 0) * hourly * 1.5) + (Number(record.holidayOvertimeHours || 0) * hourly * 2);
+  const totalAllowance = familyAllowance + managerAllowance + meal + adjustment + holidayBonusMonthly + overtimeAllowance;
+  return { ordinaryWage, overtimeAllowance, totalAllowance };
 }
 
 function saveWelfareTemplate() {
@@ -2745,7 +3025,8 @@ function mergeEmployeesFromExcel(rows) {
       resignationDate: normalizeDateCell(row["퇴사일"]),
       monthlyBasePay: Number(row["월통상임금"] || existing?.monthlyBasePay || 0),
       workHoursPerDay: Number(row["일근로시간"] || existing?.workHoursPerDay || state.settings.defaultWorkHoursPerDay || 8),
-      leaveUnitPrice: Number(row["일정산단가"] || existing?.leaveUnitPrice || 0)
+      leaveUnitPrice: Number(row["일정산단가"] || existing?.leaveUnitPrice || 0),
+      averageDailyWage: Number(row["일평균임금"] || existing?.averageDailyWage || 0)
     };
 
     if (existing) {
@@ -2848,7 +3129,7 @@ function hasMenuAccess(empId, menuKey) {
   const perm = state.perms[empId];
   if (!perm) return true;
   if (perm.grade === "admin") return true;
-  if (perm.grade === "limit") return ["dashboard", "cal", "hist"].includes(menuKey);
+  if (perm.grade === "limit") return ["dashboard", "leave", "cal", "hist"].includes(menuKey);
   return hasRawMenu(empId, menuKey);
 }
 

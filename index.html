@@ -126,6 +126,22 @@
         </div>
       </section>
 
+      <section class="view" id="view-leave">
+        <div class="page-head">
+          <div>
+            <div class="page-title">휴가 통합 메뉴</div>
+            <div class="page-sub">연차 오버뷰, 대체휴가, 특별휴가를 한 화면에서 탭으로 전환합니다.</div>
+          </div>
+          <div class="head-actions">
+            <button class="btn ghost" data-action="open-subleave-modal">대체휴가 등록</button>
+            <button class="btn ghost" data-action="open-specialleave-modal">특별휴가 등록</button>
+            <button class="btn primary" data-action="open-record-modal">연차 기록 추가</button>
+          </div>
+        </div>
+        <div id="leave-hub-tabs" class="chip-row"></div>
+        <div id="leave-hub-content" class="stack-list"></div>
+      </section>
+
       <section class="view" id="view-cal">
         <div class="page-head">
           <div>
@@ -268,7 +284,10 @@
 
               <label class="field-label" for="leave-unit-price">1일 연차 정산 단가 직접 입력</label>
               <input id="leave-unit-price" class="field" type="number" min="0" step="1000">
+              <label class="field-label" for="average-daily-wage">1일 평균임금(선택)</label>
+              <input id="average-daily-wage" class="field" type="number" min="0" step="1000">
 
+              <div class="hint-box">노동 계산기 방식 반영: 만1년 미만 월차(최대11일), 만1년 이상 15일 + 2년마다 1일(최대25일), 퇴사 시점까지 발생분 기준.</div>
               <div id="settlement-summary" class="hint-box"></div>
             </div>
           </div>
@@ -490,6 +509,14 @@
                     <th>수동세율(%)</th>
                     <th>원천세</th>
                     <th>4대보험(월)</th>
+                    <th>배우자</th>
+                    <th>자녀</th>
+                    <th>기타부양</th>
+                    <th>조정수당</th>
+                    <th>시간외(월h)</th>
+                    <th>휴일8h초과(h)</th>
+                    <th>제수당합계</th>
+                    <th>통상임금</th>
                     <th>퇴직금 추정</th>
                     <th>의무교육 이수</th>
                   </tr>
@@ -510,6 +537,7 @@
           </div>
           <div class="card-body stacked-fields">
             <div class="button-row">
+              <button class="btn ghost small" data-action="apply-seoul-pay-template">2026 서울시 템플릿 적용</button>
               <button class="btn ghost small" data-action="add-pay-grade-row">테이블 행 추가</button>
               <button class="btn primary small" data-action="save-pay-grade-table">임금 테이블 저장</button>
             </div>
@@ -532,6 +560,26 @@
             <label class="field-label" for="local-tax-rate">지방소득세 가산비율(%)</label>
             <input id="local-tax-rate" class="field" type="number" min="0" max="100" step="0.01">
             <div class="hint-box">자동모드 세금 = 월기본급 × (홈택스 세율 + 홈택스 세율×지방소득세 가산비율)</div>
+            <hr>
+            <div class="card-title">제수당 지급기준</div>
+            <label class="field-label" for="allow-meal">정액급식비(월)</label>
+            <input id="allow-meal" class="field" type="number" min="0" step="1000">
+            <label class="field-label" for="allow-manager">관리자수당(월)</label>
+            <input id="allow-manager" class="field" type="number" min="0" step="1000">
+            <label class="field-label" for="allow-spouse">배우자수당</label>
+            <input id="allow-spouse" class="field" type="number" min="0" step="1000">
+            <label class="field-label" for="allow-child1">자녀수당(첫째)</label>
+            <input id="allow-child1" class="field" type="number" min="0" step="1000">
+            <label class="field-label" for="allow-child2">자녀수당(둘째)</label>
+            <input id="allow-child2" class="field" type="number" min="0" step="1000">
+            <label class="field-label" for="allow-child3">자녀수당(셋째 이상 1인당)</label>
+            <input id="allow-child3" class="field" type="number" min="0" step="1000">
+            <label class="field-label" for="allow-other">기타부양수당(1인당)</label>
+            <input id="allow-other" class="field" type="number" min="0" step="1000">
+            <label class="field-label" for="allow-adjustment">조정수당(기본값)</label>
+            <input id="allow-adjustment" class="field" type="number" min="0" step="1000">
+            <div class="hint-box">통상임금 = 기본급 + 정액급식비 + 조정수당 + (명절휴가비 120% ÷ 12). 시간외수당은 통상시급(통상임금 ÷ 209)으로 계산.</div>
+            <div id="allowance-preview" class="log-box"></div>
           </div>
         </div>
 
@@ -585,6 +633,7 @@
                   <th>직원</th>
                   <th>권한등급</th>
                   <th>대시보드</th>
+                  <th>휴가통합</th>
                   <th>달력</th>
                   <th>내역</th>
                   <th>설정</th>
@@ -828,6 +877,8 @@
               <button class="btn ghost small" data-action="reset-org-unit-form">입력 초기화</button>
             </div>
             <div id="org-unit-list" class="stack-list compact"></div>
+            <div class="card-title">조직도 트리</div>
+            <div id="org-tree-view" class="stack-list compact"></div>
           </div>
         </div>
         <div class="layout-two">
