@@ -56,6 +56,7 @@ const ui = {
   settingsEmployeeId: "",
   subEmployeeId: "",
   specialEmployeeId: "",
+  wageCalcEmployeeId: "",
   leaveTab: "overview",
   orgEditId: "",
   managerFilter: { search: "", dept: "", risk: "all", usageMin: "", usageMax: "" },
@@ -81,6 +82,7 @@ let state = {
     payGradeTable: defaultSeoulPayGradeTable2026(),
     hometaxRate: 0,
     localTaxRate: 10,
+    simpleTaxTable: [],
     allowanceRules: defaultAllowanceRules(),
     birthdayRule: defaultBirthdayRule(),
     activeLaborRuleYear: 2026,
@@ -146,6 +148,7 @@ function bindStaticEvents() {
     if (action === "export-hr-excel") exportHrExcel();
     if (action === "import-hr-excel") document.getElementById("hr-excel-import-input").click();
     if (action === "import-pay-grade-excel") document.getElementById("pay-grade-import-input").click();
+    if (action === "import-tax-table-excel") document.getElementById("tax-table-import-input").click();
     if (action === "save-hr-info") saveHrInfoFromView();
     if (action === "save-payroll-info") savePayrollInfoFromView();
     if (action === "apply-welfare-template") applyWelfareTemplate();
@@ -204,6 +207,7 @@ function bindStaticEvents() {
   document.getElementById("hr-excel-import-input").addEventListener("change", importHrExcel);
   document.getElementById("category-excel-import-input").addEventListener("change", importCategoryExcel);
   document.getElementById("pay-grade-import-input").addEventListener("change", importPayGradeExcel);
+  document.getElementById("tax-table-import-input").addEventListener("change", importSimpleTaxTableExcel);
   document.getElementById("backup-import-hidden").addEventListener("change", importBackupSnapshot);
   document.getElementById("wage-calc-emp").addEventListener("change", (event) => {
     ui.wageCalcEmployeeId = event.target.value;
@@ -297,6 +301,7 @@ function normalizeState() {
     payGradeTable: defaultSeoulPayGradeTable2026(),
     hometaxRate: 0,
     localTaxRate: 10,
+    simpleTaxTable: [],
     allowanceRules: defaultAllowanceRules(),
     birthdayRule: defaultBirthdayRule(),
     activeLaborRuleYear: 2026,
@@ -956,6 +961,15 @@ function loadWageCalcFromEmployee() {
   document.getElementById("wage-calc-adjust").value = record.adjustmentAllowance || 0;
   document.getElementById("wage-calc-overtime").value = record.overtimeHours || 0;
   document.getElementById("wage-calc-holiday").value = record.holidayOvertimeHours || 0;
+  document.getElementById("wage-calc-family").value = record.taxFamilyCount || 1;
+  document.getElementById("wage-calc-child-tax").value = record.taxChildCount || 0;
+  document.getElementById("wage-calc-tax-rate").value = String(record.taxRatePercent || 100);
+  const flags = record.allowanceFlags || { meal: true, manager: true, family: true, adjustment: true, overtime: true };
+  document.getElementById("wage-allow-meal").checked = flags.meal !== false;
+  document.getElementById("wage-allow-manager").checked = flags.manager !== false;
+  document.getElementById("wage-allow-family").checked = flags.family !== false;
+  document.getElementById("wage-allow-adjust").checked = flags.adjustment !== false;
+  document.getElementById("wage-allow-overtime").checked = flags.overtime !== false;
   runWageCalculator(false);
 }
 
@@ -974,10 +988,20 @@ function runWageCalculator(shouldSave = true) {
   record.adjustmentAllowance = Number(document.getElementById("wage-calc-adjust").value || 0);
   record.overtimeHours = Number(document.getElementById("wage-calc-overtime").value || 0);
   record.holidayOvertimeHours = Number(document.getElementById("wage-calc-holiday").value || 0);
+  record.taxFamilyCount = Number(document.getElementById("wage-calc-family").value || 1);
+  record.taxChildCount = Number(document.getElementById("wage-calc-child-tax").value || 0);
+  record.taxRatePercent = Number(document.getElementById("wage-calc-tax-rate").value || 100);
+  record.allowanceFlags = {
+    meal: document.getElementById("wage-allow-meal").checked,
+    manager: document.getElementById("wage-allow-manager").checked,
+    family: document.getElementById("wage-allow-family").checked,
+    adjustment: document.getElementById("wage-allow-adjust").checked,
+    overtime: document.getElementById("wage-allow-overtime").checked
+  };
   record.monthlySalary = calculatePayByGrade(record.payGrade, record.payLevel, record.payStep);
-  const allowance = calculateAllowancePackage(record, record.monthlySalary);
+  const allowance = calculateAllowancePackage(record, record.monthlySalary, record.allowanceFlags);
   const gross = record.monthlySalary + allowance.totalAllowance;
-  const tax = calculateAutoTax(record.monthlySalary);
+  const tax = calculateWithholdingTax(record.monthlySalary, record.taxFamilyCount, record.taxChildCount, record.taxRatePercent);
   const insurance = Number(record.socialInsurance || 0);
   const net = gross - tax - insurance;
   document.getElementById("wage-calc-result").innerHTML = `
@@ -986,9 +1010,10 @@ function runWageCalculator(shouldSave = true) {
     <div class="status-row"><span>제수당 합계</span><strong>${Math.round(allowance.totalAllowance).toLocaleString("ko-KR")}원</strong></div>
     <div class="status-row"><span>통상임금</span><strong>${Math.round(allowance.ordinaryWage).toLocaleString("ko-KR")}원</strong></div>
     <div class="status-row"><span>원천세(자동)</span><strong>${Math.round(tax).toLocaleString("ko-KR")}원</strong></div>
+    <div class="status-row"><span>지방소득세(10%)</span><strong>${Math.round(tax * 0.1).toLocaleString("ko-KR")}원</strong></div>
     <div class="status-row"><span>4대보험</span><strong>${Math.round(insurance).toLocaleString("ko-KR")}원</strong></div>
-    <div class="status-row"><span>예상 실수령</span><strong>${Math.round(net).toLocaleString("ko-KR")}원</strong></div>
-    <div class="hint-box">계산식: 기본급 + 제수당 - 원천세 - 4대보험. 호봉표 매칭이 없으면 0원으로 계산됩니다.</div>
+    <div class="status-row"><span>예상 실수령</span><strong>${Math.round(net - (tax * 0.1)).toLocaleString("ko-KR")}원</strong></div>
+    <div class="hint-box">계산식: 기본급 + 제수당 - 원천세 - 지방소득세(원천세의10%) - 4대보험. 간이세액표 업로드 시 lookup 적용.</div>
   `;
   state.hrRecords[`${empId}_${year}`] = record;
   if (shouldSave) touchState("임금 자동계산 실행");
@@ -1304,18 +1329,34 @@ function deleteOrgUnit(unitId) {
 }
 
 function autoBuildOrgUnits() {
-  const depts = [...new Set(state.employees.map((employee) => employee.dept).filter(Boolean))];
-  state.orgUnits = depts.map((dept) => {
-    const existing = state.orgUnits.find((unit) => unit.name === dept);
-    return {
-      id: existing?.id || `org_${Date.now()}_${dept}`,
-      name: dept,
-      parentId: existing?.parentId || "",
+  const mode = document.getElementById("org-build-mode")?.value || "exact";
+  const rawDepts = [...new Set(state.employees.map((employee) => String(employee.dept || "").trim()).filter(Boolean))];
+  const built = [];
+  const upsert = (name, parentName = "") => {
+    if (!name) return;
+    if (built.some((item) => item.name === name)) return;
+    const existing = state.orgUnits.find((unit) => unit.name === name);
+    const parent = parentName ? (built.find((item) => item.name === parentName) || state.orgUnits.find((item) => item.name === parentName)) : null;
+    built.push({
+      id: existing?.id || `org_${Date.now()}_${name}`,
+      name,
+      parentId: existing?.parentId || parent?.id || "",
       leaderId: existing?.leaderId || "",
-      note: existing?.note || "직원 목록 기준 자동동기화"
-    };
+      note: existing?.note || `직원 목록 기준 자동동기화(${mode})`
+    });
+  };
+
+  rawDepts.forEach((dept) => {
+    if (mode === "slash" || mode === "arrow") {
+      const tokens = dept.split(mode === "slash" ? "/" : ">").map((item) => item.trim()).filter(Boolean);
+      tokens.forEach((name, index) => upsert(name, index > 0 ? tokens[index - 1] : ""));
+    } else {
+      upsert(dept, "");
+    }
   });
-  touchState("직원 목록 기준 조직도 자동구성");
+
+  state.orgUnits = built;
+  touchState(`직원 목록 기준 조직도 자동구성 (${mode})`);
   renderErpView();
 }
 
@@ -2461,7 +2502,11 @@ function getHrRecord(empId, year) {
     spouseCount: 0,
     childCount: 0,
     otherDependentCount: 0,
+    taxFamilyCount: 1,
+    taxChildCount: 0,
+    taxRatePercent: 100,
     adjustmentAllowance: 0,
+    allowanceFlags: { meal: true, manager: true, family: true, adjustment: true, overtime: true },
     overtimeHours: 0,
     holidayOvertimeHours: 0,
     totalAllowance: 0,
@@ -2843,7 +2888,7 @@ function savePayrollInfoFromView() {
     record.monthlySalary = inputSalary || calculatedPay || 0;
     record.taxMode = document.querySelector(`[data-pay-tax-mode="${employee.id}"]`)?.value || "hometax";
     record.manualTaxRate = Number(document.querySelector(`[data-pay-tax-rate="${employee.id}"]`)?.value || 0);
-    const autoTax = calculateAutoTax(record.monthlySalary);
+    const autoTax = calculateWithholdingTax(record.monthlySalary, Number(record.taxFamilyCount || 1), Number(record.taxChildCount || 0), Number(record.taxRatePercent || 100));
     const manualTax = record.monthlySalary * (record.manualTaxRate / 100);
     record.withholdingTax = Math.round(record.taxMode === "manual" ? manualTax : autoTax);
     record.socialInsurance = Number(document.querySelector(`[data-pay-insurance="${employee.id}"]`)?.value || 0);
@@ -2853,7 +2898,7 @@ function savePayrollInfoFromView() {
     record.adjustmentAllowance = Number(document.querySelector(`[data-pay-adjust="${employee.id}"]`)?.value || 0);
     record.overtimeHours = Number(document.querySelector(`[data-pay-ot="${employee.id}"]`)?.value || 0);
     record.holidayOvertimeHours = Number(document.querySelector(`[data-pay-hot="${employee.id}"]`)?.value || 0);
-    const allowancePack = calculateAllowancePackage(record, record.monthlySalary);
+    const allowancePack = calculateAllowancePackage(record, record.monthlySalary, record.allowanceFlags);
     record.totalAllowance = Math.round(allowancePack.totalAllowance);
     record.ordinaryWage = Math.round(allowancePack.ordinaryWage);
     record.overtimeAllowance = Math.round(allowancePack.overtimeAllowance);
@@ -2932,6 +2977,23 @@ function calculateAutoTax(basePay) {
   return basePay * (hometaxRate + (hometaxRate * localRate));
 }
 
+function calculateWithholdingTax(basePay, familyCount = 1, childCount = 0, ratePercent = 100) {
+  const tableTax = lookupSimpleTax(basePay, familyCount, childCount);
+  const baseTax = tableTax !== null ? tableTax : calculateAutoTax(basePay);
+  return baseTax * (Number(ratePercent || 100) / 100);
+}
+
+function lookupSimpleTax(basePay, familyCount, childCount) {
+  const table = state.settings.simpleTaxTable || [];
+  if (!table.length) return null;
+  const matched = table.find((row) => basePay >= row.salaryMin && basePay <= row.salaryMax
+    && Number(row.familyCount) === Number(familyCount)
+    && Number(row.childCount || 0) === Number(childCount));
+  if (matched) return Number(matched.tax || 0);
+  const fallback = table.find((row) => basePay >= row.salaryMin && basePay <= row.salaryMax && Number(row.familyCount) === Number(familyCount));
+  return fallback ? Number(fallback.tax || 0) : null;
+}
+
 function applyWelfareTemplate() {
   state.settings.welfareStandard = defaultWelfareStandard();
   touchState("서울시 사회복지시설 기준 템플릿 적용");
@@ -2962,8 +3024,8 @@ function importPayGradeExcel(event) {
       const parsed = rows.map((row) => ({
         grade: String(row["직급"] || row["직군"] || "").trim(),
         level: String(row["급수"] || row["등급"] || "").trim(),
-        step: Number(row["호봉"] || row["step"] || 0),
-        basePay: Number(row["월 기본급"] || row["기본급"] || row["basePay"] || 0)
+        step: Number(String(row["호봉"] || row["step"] || "0").replace(/[^0-9]/g, "")),
+        basePay: Number(String(row["월 기본급"] || row["기본급"] || row["basePay"] || "0").replace(/[^0-9]/g, ""))
       })).filter((item) => item.step > 0 && item.basePay > 0 && (item.grade || item.level));
       if (!parsed.length) throw new Error("유효한 행이 없습니다. 컬럼명: 직급/급수/호봉/월 기본급");
       state.settings.payGradeTable = parsed;
@@ -2979,20 +3041,65 @@ function importPayGradeExcel(event) {
   reader.readAsArrayBuffer(file);
 }
 
-function calculateAllowancePackage(record, basePay) {
+function importSimpleTaxTableExcel(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (typeof XLSX === "undefined") {
+    alert("엑셀 라이브러리를 불러오지 못했습니다.");
+    event.target.value = "";
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (loadEvent) => {
+    try {
+      const workbook = XLSX.read(loadEvent.target.result, { type: "array" });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: "" });
+      const parsed = rows.map((row) => {
+        const salary = String(row["월급여"] || row["총급여"] || row["salary"] || "").replace(/[^0-9~\-]/g, "");
+        const [minRaw, maxRaw] = salary.includes("~") ? salary.split("~") : [salary, salary];
+        const salaryMin = Number(String(minRaw || "0").replace(/[^0-9]/g, ""));
+        const salaryMax = Number(String(maxRaw || minRaw || "0").replace(/[^0-9]/g, ""));
+        return {
+          salaryMin,
+          salaryMax: salaryMax || salaryMin,
+          familyCount: Number(String(row["가족수"] || row["부양가족수"] || row["family"] || "1").replace(/[^0-9]/g, "")) || 1,
+          childCount: Number(String(row["자녀수"] || row["8~20세 자녀수"] || row["child"] || "0").replace(/[^0-9]/g, "")) || 0,
+          tax: Number(String(row["소득세"] || row["원천세"] || row["tax"] || "0").replace(/[^0-9]/g, "")) || 0
+        };
+      }).filter((item) => item.salaryMin > 0 && item.salaryMax >= item.salaryMin);
+      if (!parsed.length) throw new Error("유효한 행이 없습니다. 컬럼 예시: 월급여(또는 salary), 가족수, 자녀수, 소득세");
+      state.settings.simpleTaxTable = parsed;
+      touchState(`간이세액표 업로드 ${parsed.length}건`);
+      alert(`간이세액표 ${parsed.length}건 반영 완료`);
+    } catch (error) {
+      alert(`간이세액표 업로드 오류: ${error.message}`);
+    } finally {
+      event.target.value = "";
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function calculateAllowancePackage(record, basePay, flags = {}) {
   const rule = state.settings.allowanceRules || defaultAllowanceRules();
+  const useMeal = flags.meal !== false;
+  const useManager = flags.manager !== false;
+  const useFamily = flags.family !== false;
+  const useAdjustment = flags.adjustment !== false;
+  const useOvertime = flags.overtime !== false;
   const spouseCount = Number(record.spouseCount || 0);
   const childCount = Number(record.childCount || 0);
   const otherCount = Number(record.otherDependentCount || 0);
   const childAllowance = (childCount >= 1 ? rule.child1 : 0) + (childCount >= 2 ? rule.child2 : 0) + (childCount >= 3 ? (childCount - 2) * rule.child3Plus : 0);
-  const familyAllowance = (spouseCount > 0 ? rule.spouse : 0) + childAllowance + (otherCount * rule.otherDependent);
-  const managerAllowance = record.payGrade === "관리직" ? rule.manager : 0;
-  const adjustment = Number(record.adjustmentAllowance || rule.defaultAdjustment || 0);
-  const meal = rule.meal;
+  const familyAllowance = useFamily ? ((spouseCount > 0 ? rule.spouse : 0) + childAllowance + (otherCount * rule.otherDependent)) : 0;
+  const managerAllowance = useManager && record.payGrade === "관리직" ? rule.manager : 0;
+  const adjustment = useAdjustment ? Number(record.adjustmentAllowance || rule.defaultAdjustment || 0) : 0;
+  const meal = useMeal ? rule.meal : 0;
   const holidayBonusMonthly = basePay * 1.2 / 12;
   const ordinaryWage = basePay + meal + adjustment + holidayBonusMonthly;
   const hourly = ordinaryWage / 209;
-  const overtimeAllowance = (Number(record.overtimeHours || 0) * hourly * 1.5) + (Number(record.holidayOvertimeHours || 0) * hourly * 2);
+  const overtimeAllowance = useOvertime ? ((Number(record.overtimeHours || 0) * hourly * 1.5) + (Number(record.holidayOvertimeHours || 0) * hourly * 2)) : 0;
   const totalAllowance = familyAllowance + managerAllowance + meal + adjustment + holidayBonusMonthly + overtimeAllowance;
   return { ordinaryWage, overtimeAllowance, totalAllowance };
 }

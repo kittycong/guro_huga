@@ -879,6 +879,12 @@
               <button class="btn ghost small" data-action="reset-org-unit-form">입력 초기화</button>
             </div>
             <div id="org-unit-list" class="stack-list compact"></div>
+            <label class="field-label" for="org-build-mode">자동구성 기준</label>
+            <select id="org-build-mode" class="field">
+              <option value="exact">부서명 그대로</option>
+              <option value="slash">부서 경로(/) 분리</option>
+              <option value="arrow">부서 경로(&gt;) 분리</option>
+            </select>
             <div class="card-title">조직도 트리</div>
             <div id="org-tree-view" class="stack-list compact"></div>
           </div>
@@ -913,6 +919,7 @@
             <div class="page-sub">직급/호봉 임금테이블, 제수당, 공제를 통합 계산합니다.</div>
           </div>
           <div class="head-actions">
+            <button class="btn ghost" data-action="import-tax-table-excel">간이세액표 업로드</button>
             <button class="btn ghost" data-action="open-erp-menu" data-view="hr">인사정보 등록 열기</button>
             <button class="btn primary" data-action="run-wage-calculator">임금 자동계산</button>
           </div>
@@ -944,6 +951,22 @@
               <input id="wage-calc-overtime" class="field" type="number" min="0" step="1" value="0">
               <label class="field-label" for="wage-calc-holiday">휴일8시간초과(월)</label>
               <input id="wage-calc-holiday" class="field" type="number" min="0" step="1" value="0">
+              <label class="field-label" for="wage-calc-family">부양가족수(본인포함)</label>
+              <input id="wage-calc-family" class="field" type="number" min="1" step="1" value="1">
+              <label class="field-label" for="wage-calc-child-tax">8~20세 자녀수(세액표)</label>
+              <input id="wage-calc-child-tax" class="field" type="number" min="0" step="1" value="0">
+              <label class="field-label" for="wage-calc-tax-rate">원천징수 반영률</label>
+              <select id="wage-calc-tax-rate" class="field">
+                <option value="100">100%</option>
+                <option value="80">80%</option>
+                <option value="120">120%</option>
+              </select>
+              <div class="hint-box">간이세액표 업로드 시 lookup 결과를 우선 적용하고, 미업로드 시 기존 비율 계산으로 fallback 됩니다.</div>
+              <label class="checkbox-row"><input id="wage-allow-meal" type="checkbox" checked><span>정액급식비 반영</span></label>
+              <label class="checkbox-row"><input id="wage-allow-manager" type="checkbox" checked><span>관리자수당 반영</span></label>
+              <label class="checkbox-row"><input id="wage-allow-family" type="checkbox" checked><span>가족수당 반영</span></label>
+              <label class="checkbox-row"><input id="wage-allow-adjust" type="checkbox" checked><span>조정수당 반영</span></label>
+              <label class="checkbox-row"><input id="wage-allow-overtime" type="checkbox" checked><span>시간외수당 반영</span></label>
             </div>
           </div>
           <div class="card">
@@ -976,6 +999,7 @@
   <input id="hr-excel-import-input" type="file" accept=".xlsx,.xls" hidden>
   <input id="category-excel-import-input" type="file" accept=".xlsx,.xls" hidden>
   <input id="pay-grade-import-input" type="file" accept=".xlsx,.xls,.csv" hidden>
+  <input id="tax-table-import-input" type="file" accept=".xlsx,.xls,.csv" hidden>
   <input id="backup-import-hidden" type="file" accept=".json" hidden>
 </body>
 </html>
