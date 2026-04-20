@@ -450,13 +450,26 @@ function applyCardCollapse(card, collapsed) {
 function renderNavigation() {
   const container = document.getElementById("nav-list");
   const current = currentUser();
-  container.innerHTML = MENU_DEFS
-    .filter((menu) => hasMenuAccess(current?.id, menu.key))
-    .map((menu) => {
-      const active = ui.activeView === menu.key ? " active" : "";
-      return `<button class="nav-btn${active}" type="button" data-view="${menu.key}">${menu.label}<span>›</span></button>`;
-    })
-    .join("");
+  const grouped = [
+    { label: "개인", keys: ["cal", "hist"] },
+    { label: "운영", keys: ["dashboard", "mgr", "emp", "office"] },
+    { label: "휴가관리", keys: ["leave", "set", "sub", "spe"] },
+    { label: "인사관리", keys: ["hr", "payroll", "perm"] },
+    { label: "시스템", keys: ["sync", "datahub", "erp"] }
+  ];
+  const menuMap = new Map(MENU_DEFS.map((menu) => [menu.key, menu]));
+  container.innerHTML = grouped.map((group) => {
+    const buttons = group.keys
+      .map((key) => menuMap.get(key))
+      .filter((menu) => menu && hasMenuAccess(current?.id, menu.key))
+      .map((menu) => {
+        const active = ui.activeView === menu.key ? " active" : "";
+        return `<button class="nav-btn${active}" type="button" data-view="${menu.key}">${menu.label}<span>›</span></button>`;
+      })
+      .join("");
+    if (!buttons) return "";
+    return `<div class="nav-section"><div class="nav-label">${group.label}</div>${buttons}</div>`;
+  }).join("");
 
   container.querySelectorAll(".nav-btn").forEach((button) => {
     button.addEventListener("click", () => switchView(button.dataset.view));
@@ -478,31 +491,20 @@ function renderSidebar() {
 
 function renderDashboard() {
   const year = ui.managerYear;
-  const todayKey = formatDateKey(new Date());
   document.getElementById("dashboard-year-label").textContent = `${year}년 기준`;
 
   const summaries = state.employees.map((employee) => employeeSummary(employee.id, year));
-  const totalGrant = summaries.reduce((sum, item) => sum + item.total, 0);
-  const totalUsed = summaries.reduce((sum, item) => sum + item.used, 0);
   const totalRemain = summaries.reduce((sum, item) => sum + item.remain, 0);
+  const avgUsage = summaries.length ? Math.round(summaries.reduce((sum, item) => sum + item.usagePercent, 0) / summaries.length) : 0;
   const peopleAtRisk = summaries.filter((item) => item.alertLevel === "urgent" || item.alertLevel === "warning").length;
   const promotionTargets = summaries.filter((item) => item.promotionNeeded).length;
-  const todayLeaveCount = state.records.filter((record) => record.date === todayKey).length;
-  const unsavedChanges = state.updatedAt && lastSavedAt ? 0 : (state.updatedAt ? 1 : 0);
-
-  document.getElementById("today-summary").innerHTML = [
-    kpiCard("white", "오늘 휴가/반차", `${todayLeaveCount}`, "건", todayKey),
-    kpiCard("amber", "소멸 위험", `${peopleAtRisk}`, "명", "조치 필요"),
-    kpiCard("primary", "미저장 변경", `${unsavedChanges}`, "건", "공유 저장 확인"),
-    kpiCard("green", "최근 동기화", lastSavedAt || "없음", "", "GitHub 저장 기준")
-  ].join("");
+  document.getElementById("today-summary").innerHTML = "";
 
   document.getElementById("dashboard-kpis").innerHTML = [
-    kpiCard("primary", "직원 수", `${state.employees.length}`, "명", "현재 관리 대상"),
-    kpiCard("white", "총 연차 생성", totalGrant.toFixed(1), "일", "전체 직원 합산"),
-    kpiCard("green", "총 사용", totalUsed.toFixed(1), "일", "연차/반차 반영"),
-    kpiCard("amber", "소멸·촉진 대상", `${promotionTargets}`, "명", "촉진 검토 필요"),
-    kpiCard("red", "위험 인원", `${peopleAtRisk}`, "명", "잔여/소멸 경고")
+    kpiCard("primary", "전체 직원 수", `${state.employees.length}`, "명", "운영 대상"),
+    kpiCard("blue", "평균 사용률", `${avgUsage}`, "%", "연차 기준"),
+    kpiCard("red", "소멸 위험 인원", `${peopleAtRisk}`, "명", "즉시 확인"),
+    kpiCard("amber", "촉진 필요 인원", `${promotionTargets}`, "명", "안내 필요")
   ].join("");
 
   const alerts = buildAlerts(summaries);
@@ -517,8 +519,6 @@ function renderDashboard() {
       <tr>
         <td>${employeeCell(item.employee)}</td>
         <td>${item.employee.dept || "-"}</td>
-        <td>${item.total}</td>
-        <td>${item.used}</td>
         <td><strong>${item.remain}</strong></td>
         <td>${item.usagePercent}%</td>
         <td>${latest}</td>
