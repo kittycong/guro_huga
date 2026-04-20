@@ -88,6 +88,7 @@ let state = {
     hometaxRate: 0,
     localTaxRate: 10,
     simpleTaxTable: [],
+    simpleTaxMeta: defaultSimpleTaxMeta(),
     allowanceRules: defaultAllowanceRules(),
     birthdayRule: defaultBirthdayRule(),
     activeLaborRuleYear: 2026,
@@ -366,6 +367,7 @@ function normalizeState() {
     hometaxRate: 0,
     localTaxRate: 10,
     simpleTaxTable: [],
+    simpleTaxMeta: defaultSimpleTaxMeta(),
     allowanceRules: defaultAllowanceRules(),
     birthdayRule: defaultBirthdayRule(),
     activeLaborRuleYear: 2026,
@@ -375,6 +377,7 @@ function normalizeState() {
     defaultWorkHoursPerDay: 8,
     employmentRules: defaultEmploymentRules()
   }, state.settings || {});
+  state.settings.simpleTaxMeta = normalizeSimpleTaxMeta(state.settings.simpleTaxMeta);
   state.employees = Array.isArray(state.employees) ? state.employees : [];
   state.records = Array.isArray(state.records) ? state.records : [];
   state.subLeaves = Array.isArray(state.subLeaves) ? state.subLeaves : [];
@@ -563,14 +566,15 @@ function renderDashboard() {
   document.getElementById("dashboard-kpis").innerHTML = [
     kpiCard("primary", "전체 직원 수", `${state.employees.length}`, "명", "운영 대상"),
     kpiCard("blue", "평균 사용률", `${avgUsage}`, "%", "연차 기준"),
-    kpiCard("red", "소멸 위험 인원", `${peopleAtRisk}`, "명", "즉시 확인"),
-    kpiCard("amber", "촉진 필요 인원", `${promotionTargets}`, "명", "안내 필요")
+    kpiCard("amber", "촉진 필요", `${promotionTargets}`, "명", "사용률 기준"),
+    kpiCard("red", "위험 인원", `${peopleAtRisk}`, "명", "소멸/잔여 경고")
   ].join("");
 
   const alerts = buildAlerts(summaries);
   document.getElementById("alert-count").textContent = `${alerts.length}건`;
   document.getElementById("alert-list").innerHTML = alerts.length ? alerts.map(renderAlertItem).join("") : emptyState("현재 표시할 경고가 없습니다.");
 
+  document.getElementById("dept-summary").innerHTML = buildDepartmentSummary(summaries);
   document.getElementById("dashboard-body").innerHTML = summaries.map((item) => {
     const latest = latestRecord(item.employee.id, year)?.date || "없음";
     const tone = item.alertLevel === "urgent" ? "red" : item.alertLevel === "warning" ? "amber" : "green";
@@ -579,7 +583,7 @@ function renderDashboard() {
       <tr>
         <td>${employeeCell(item.employee)}</td>
         <td>${item.employee.dept || "-"}</td>
-        <td><strong>${item.remain}</strong></td>
+        <td>${item.remain.toFixed(1)}일</td>
         <td>${item.usagePercent}%</td>
         <td>${latest}</td>
         <td><span class="tag ${tone}">${label}</span></td>
@@ -587,15 +591,12 @@ function renderDashboard() {
     `;
   }).join("");
 
-  document.getElementById("dept-summary").innerHTML = buildDepartmentSummary(summaries);
   document.getElementById("ops-memo").value = state.settings.opsMemo || "";
   document.getElementById("audit-log-list").innerHTML = state.auditLogs.length
-    ? state.auditLogs.slice(0, 20).map((item) => `
-      <div class="row-item">
-        <div class="row-main">
-          <div class="row-title">${item.message}</div>
-          <div class="row-desc">${item.at}</div>
-        </div>
+    ? [...state.auditLogs].slice(-20).reverse().map((log) => `
+      <div class="row-item col">
+        <div class="row-title">${log.action}</div>
+        <div class="row-desc">${log.at}</div>
       </div>
     `).join("")
     : emptyState("아직 기록된 변경 로그가 없습니다.");
@@ -612,18 +613,6 @@ function renderLeaveHub() {
   renderLeaveHubTabs();
   const year = ui.currentYear;
   const summaries = state.employees.map((employee) => employeeSummary(employee.id, year));
-  const monthPrefix = `${year}-${pad(new Date().getMonth() + 1)}`;
-  const totalSub = state.employees.reduce((sum, employee) => sum + subBalance(employee.id), 0);
-  const totalSpecialUsed = state.specialLeaves.filter((item) => item.action === "use").length;
-  const monthRecords = state.records.filter((record) => record.date.startsWith(monthPrefix)).length
-    + state.subLeaves.filter((item) => (item.date || "").startsWith(monthPrefix)).length
-    + state.specialLeaves.filter((item) => (item.date || "").startsWith(monthPrefix)).length;
-  document.getElementById("leave-hub-kpis").innerHTML = [
-    kpiCard("blue", "총 연차 잔여", summaries.reduce((sum, item) => sum + item.remain, 0).toFixed(1), "일", `${year}년 기준`),
-    kpiCard("purple", "총 대체휴가 잔여", totalSub.toFixed(1), "일", "전체 직원"),
-    kpiCard("green", "총 특별휴가 사용", `${totalSpecialUsed}`, "건", "누적"),
-    kpiCard("amber", "이번 달 전체 기록", `${monthRecords}`, "건", "연차/대체/특별")
-  ].join("");
   const root = document.getElementById("leave-hub-content");
   if (!root) return;
   if (ui.leaveTab === "overview") {
@@ -736,8 +725,10 @@ function renderCalendarView() {
 
   renderYearTabs("year-tabs", ui.currentYear, (year) => {
     ui.currentYear = year;
-    renderAll();
+    renderCalendarView();
+    renderHistory();
   });
+
   renderCalendarGrid();
   renderMonthHistory();
 }
@@ -759,34 +750,16 @@ function renderHistory() {
     })
     .sort((left, right) => right.date.localeCompare(left.date));
 
-  document.getElementById("history-count").textContent = `총 ${records.length}건 · ${ui.histFilter.month ? `${Number(ui.histFilter.month)}월` : "전체 월"} · ${ui.histFilter.type || "전체 유형"}`;
-  document.getElementById("history-body").innerHTML = records.length ? groupHistoryByMonth(records) : emptyState("필터 조건에 맞는 기록이 없습니다.");
-}
-
-function groupHistoryByMonth(records) {
-  const grouped = records.reduce((map, record) => {
-    const key = record.date.slice(0, 7);
-    const list = map.get(key) || [];
-    list.push(record);
-    map.set(key, list);
-    return map;
-  }, new Map());
-  return Array.from(grouped.entries()).map(([month, items]) => `
-    <div class="card minor-card">
-      <div class="card-head">
-        <div class="card-title">${month} 기록</div>
-        <div class="card-meta">${items.length}건</div>
-      </div>
-      <div class="stack-list">${items.map(renderRecordRow).join("")}</div>
-    </div>
-  `).join("");
+  document.getElementById("history-count").textContent = `총 ${records.length}건`;
+  document.getElementById("history-body").innerHTML = records.length
+    ? records.map(renderRecordRow).join("")
+    : emptyState("해당 연도 기록이 없습니다.");
 }
 
 function renderSettings() {
   const selected = employeeById(ui.settingsEmployeeId) || currentUser();
   if (!selected) return;
   ui.settingsEmployeeId = selected.id;
-
   document.getElementById("set-emp-sel").innerHTML = state.employees
     .map((employee) => `<option value="${employee.id}" ${employee.id === selected.id ? "selected" : ""}>${employee.name}</option>`)
     .join("");
@@ -815,7 +788,8 @@ function renderSettings() {
   const years = allYears();
   const auto = accrual(selected.joinDate, ui.currentYear, selected.fiscalYearMonth);
   document.getElementById("accrual-hint").textContent = selected.joinDate
-    ? `${selected.name}님의 ${ui.currentYear}년 자동 계산 연차는 ${auto}일입니다. 회계년도 시작 월은 ${selected.fiscalYearMonth || 1}월입니다.`
+    ? `${selected.name}님의 ${ui.currentYear}년 자동 계산 연차는 ${auto}일입니다.
+회계년도 시작 월은 ${selected.fiscalYearMonth || 1}월입니다.`
     : "입사일을 입력하면 자동 계산 기준이 표시됩니다.";
 
   document.getElementById("year-inputs").innerHTML = years.map((year) => {
@@ -834,12 +808,10 @@ function renderSettings() {
 
   const settlement = calcRetirementPayout(selected.id, ui.currentYear);
   document.getElementById("settlement-summary").innerHTML = `
-    <div class="calc-result">
-      <div>잔여 연차: <strong>${settlement.remainingDays.toFixed(2)}일</strong></div>
-      <div>계산식: ${settlement.formula}</div>
-      <div class="calc-amount">${settlement.amount.toLocaleString("ko-KR")}원</div>
-      <div class="row-desc">${settlement.note}</div>
-    </div>
+    <div class="status-row"><span>잔여 연차</span><strong>${settlement.remainingDays.toFixed(2)}일</strong></div>
+    <div class="status-row"><span>계산식</span><strong>${settlement.formula}</strong></div>
+    <div class="status-row"><span>예상 정산액</span><strong class="calc-amount">${settlement.amount.toLocaleString("ko-KR")}원</strong></div>
+    <div class="row-desc">${settlement.note}</div>
   `;
 }
 
@@ -865,7 +837,7 @@ function renderEmployees() {
         <div class="employee-name">${employee.name}</div>
         <div class="employee-meta">${[employee.dept, employee.role].filter(Boolean).join(" · ") || "정보 없음"}</div>
         <div class="progress"><span style="width:${width}%"></span></div>
-        <div class="employee-meta">잔여 ${summary.remain}일 · 최근 휴가 ${latest}</div>
+        <div class="row-desc">${summary.used} / ${summary.total}일 사용 · 잔여 ${summary.remain}일</div>
         <div class="card-actions">
           <button class="action-link" type="button" data-emp-open="${employee.id}">달력 보기</button>
           <button class="action-link" type="button" data-emp-edit="${employee.id}">수정</button>
@@ -895,11 +867,12 @@ function renderEmployees() {
       switchView("cal");
     });
   });
-
   document.querySelectorAll("[data-emp-edit]").forEach((button) => {
     button.addEventListener("click", () => openEmployeeModal(button.dataset.empEdit));
   });
-
+  document.querySelectorAll("[data-emp-delete]").forEach((button) => {
+    button.addEventListener("click", () => deleteEmployee(button.dataset.empDelete));
+  });
 }
 
 function renderSubLeaves() {
@@ -933,12 +906,12 @@ function renderSubLeaves() {
   document.getElementById("sub-balance").innerHTML = `
     <div class="sub-balance">
       <div>
-        <div class="sub-value">${subBalance(employee.id).toFixed(1)}일</div>
         <div class="row-desc">현재 사용 가능한 대체휴가</div>
+        <div class="sub-value">${subBalance(employee.id).toFixed(1)}일</div>
       </div>
       <div class="sub-balance-actions">
-        <button class="btn ghost small" type="button" data-action="open-bulk-subleave-modal">일괄 부여</button>
-        <button class="btn primary small" type="button" data-action="open-subleave-modal">부여 / 사용</button>
+        <button class="btn ghost small" data-action="open-bulk-subleave-modal">일괄 부여</button>
+        <button class="btn primary small" data-action="open-subleave-modal">부여 / 사용</button>
       </div>
     </div>
   `;
@@ -957,19 +930,16 @@ function renderSubLeaves() {
 
 function renderSpecialLeaves() {
   const specialTypes = ["경조사", "병가", "포상휴가", "생일반차", "기타휴가"];
-  const employee = employeeById(ui.specialEmployeeId) || currentUser();
-  if (!employee) return;
-  ui.specialEmployeeId = employee.id;
-
   document.getElementById("special-kpis").innerHTML = [
-    kpiCard("white", "특별휴가 기록", `${state.specialLeaves.length}`, "건", "전체 직원"),
-    kpiCard("green", "총 부여", `${sumSpecialByAction("grant").toFixed(1)}`, "일", "독립 잔여"),
-    kpiCard("red", "총 사용", `${sumSpecialByAction("use").toFixed(1)}`, "일", "연차 미차감"),
-    kpiCard("primary", "현재 직원 잔여", `${specialBalance(employee.id).toFixed(1)}`, "일", employee.name)
+    kpiCard("purple", "전체 잔여", state.employees.reduce((sum, employee) => sum + specialBalance(employee.id), 0).toFixed(1), "일", "전체 직원 합산"),
+    kpiCard("green", "부여", sumSpecialByAction("grant").toFixed(1), "일", "누적"),
+    kpiCard("red", "사용", sumSpecialByAction("use").toFixed(1), "일", "누적"),
+    kpiCard("white", "이력 건수", `${state.specialLeaves.length}`, "건", "전체 유형")
   ].join("");
 
-  document.getElementById("special-employee-tabs").innerHTML = state.employees.map((item) => {
-    return `<button class="pill ${item.id === ui.specialEmployeeId ? "active" : ""}" type="button" data-special-emp="${item.id}">${item.name} (${specialBalance(item.id).toFixed(1)}일)</button>`;
+  document.getElementById("special-employee-tabs").innerHTML = state.employees.map((employee) => {
+    const active = employee.id === ui.specialEmployeeId ? " active" : "";
+    return `<button class="pill${active}" type="button" data-special-emp="${employee.id}">${employee.name}</button>`;
   }).join("");
 
   document.querySelectorAll("[data-special-emp]").forEach((button) => {
@@ -979,24 +949,35 @@ function renderSpecialLeaves() {
     });
   });
 
+  const employee = employeeById(ui.specialEmployeeId) || currentUser();
+  if (!employee) return;
+  ui.specialEmployeeId = employee.id;
   document.getElementById("special-balance-label").textContent = employee.name;
-  document.getElementById("special-balance").innerHTML = specialTypes.map((type) => {
-    return `
-      <div class="row-item">
-        <div class="row-main">
-          <div class="row-title">${type}</div>
-          <div class="row-desc">유형별 독립 잔여 일수</div>
-        </div>
-        <span class="tag purple">${specialBalanceByReason(employee.id, type).toFixed(1)}일</span>
+  document.getElementById("special-balance").innerHTML = specialTypes.map((type) => `
+    <div class="row-item">
+      <div class="row-main">
+        <div class="row-title">${type}</div>
+        <div class="row-desc">${employee.name} 잔여</div>
       </div>
-    `;
-  }).join("");
+      <span class="tag purple">${specialBalanceByReason(employee.id, type).toFixed(1)}일</span>
+    </div>
+  `).join("");
 
   const history = state.specialLeaves
     .filter((item) => item.empId === employee.id)
     .sort((left, right) => right.date.localeCompare(left.date));
   document.getElementById("special-history-count").textContent = `총 ${history.length}건`;
-  document.getElementById("special-history-body").innerHTML = history.length ? history.map(renderSpecialRow).join("") : emptyState("특별휴가 이력이 없습니다.");
+  document.getElementById("special-history-body").innerHTML = history.length
+    ? history.map((item) => `
+      <div class="row-item">
+        <div class="row-main">
+          <div class="row-title">${item.date} · ${item.reason}</div>
+          <div class="row-desc">${item.action === "grant" ? "부여" : "사용"} ${Number(item.days).toFixed(1)}일 · ${item.memo || item.evidence || "메모 없음"}</div>
+        </div>
+        <button class="action-link" type="button" data-special-delete="${item.id}">삭제</button>
+      </div>
+    `).join("")
+    : emptyState("특별휴가 이력이 없습니다.");
 
   document.querySelectorAll("[data-special-delete]").forEach((button) => {
     button.addEventListener("click", () => deleteSpecialLeave(button.dataset.specialDelete));
@@ -1086,7 +1067,7 @@ function renderHrView() {
     const record = getHrRecord(employee.id, ui.hrYear);
     const calculatedPay = calculatePayByGrade(record.payGrade, record.payLevel, record.payStep);
     const basePay = Number(record.monthlySalary || calculatedPay || 0);
-    const autoTax = calculateAutoTax(basePay);
+    const autoTax = calculateWithholdingTax(basePay, Number(record.taxFamilyCount || 1), Number(record.taxChildCount || 0), Number(record.taxRatePercent || 100));
     const allowance = calculateAllowancePackage(record, basePay);
     return `
       <tr>
@@ -1323,135 +1304,89 @@ function renderErpView() {
       },
       {
         id: "hr-org",
-        title: "조직도/직무배치",
-        desc: "부서 체계·팀장·구성원 운영",
+        title: "조직도 관리",
+        desc: "부서/상위부서/팀장 연결",
         view: "erp"
-      },
-      {
-        id: "hr-appointment",
-        title: "인사발령",
-        desc: "입사/전보/휴직/복직/퇴사 기록",
-        view: "hr"
-      },
-      {
-        id: "hr-promotion",
-        title: "승호/승진/승급 월 관리",
-        desc: "호봉/승진 시점 추적",
-        view: "hr"
       }
     ],
     attendance: [
       {
         id: "att-leave",
-        title: "연차/특별휴가 자동부여",
-        desc: "생일반차, 대체휴가 포함",
-        view: "spe"
+        title: "연차/휴가",
+        desc: "연차/특별휴가/대체휴가 관리",
+        view: "leave"
       },
       {
-        id: "att-close",
-        title: "근태 월 마감",
-        desc: "월별 사용현황/잔여점검",
-        view: "mgr"
-      },
-      {
-        id: "att-overtime",
-        title: "출퇴근/초과근무 연동",
-        desc: "초과근무 기록 통합",
-        view: "office"
+        id: "att-risk",
+        title: "리스크 캘린더",
+        desc: "소멸위험/촉진대상 모니터링",
+        view: "dashboard"
       }
     ],
     payroll: [
       {
-        id: "pay-template",
-        title: "급여항목 템플릿",
-        desc: "기본급/수당/공제 테이블",
-        view: "hr"
+        id: "pay-grade",
+        title: "임금테이블/세액표",
+        desc: "직급별 기본급/원천세 로직",
+        view: "payroll"
       },
       {
-        id: "pay-tax",
-        title: "4대보험/원천세 계산",
-        desc: "자동/수동 세율 계산",
-        view: "hr"
-      },
-      {
-        id: "pay-export",
-        title: "지급명세서 데이터 출력",
-        desc: "엑셀 내보내기",
-        view: "datahub"
-      },
-      {
-        id: "pay-retire",
-        title: "퇴직금 시뮬레이션",
-        desc: "평균임금/통상임금 비교",
-        view: "hr"
+        id: "pay-settlement",
+        title: "퇴직금/정산",
+        desc: "퇴직 정산 참고 계산",
+        view: "set"
       }
     ],
     compliance: [
       {
         id: "comp-edu",
-        title: "법정의무교육 이수현황",
-        desc: "직원별 완료체크/누락점검",
+        title: "법정의무교육",
+        desc: "급여 화면에서 이수여부 저장",
         view: "hr"
       },
       {
-        id: "comp-alert",
-        title: "미이수 알림/이력",
-        desc: "위험 인원 필터링",
-        view: "mgr"
-      },
-      {
-        id: "comp-doc",
-        title: "노사 문서 관리",
-        desc: "규정/문서 백업",
-        view: "sync"
-      },
-      {
-        id: "comp-perm",
-        title: "개인정보 접근권한",
-        desc: "권한표/접근범위 관리",
-        view: "perm"
-      },
-      {
-        id: "comp-audit",
-        title: "감사로그 + 버전 롤백",
-        desc: "변경이력, 스냅샷 복구",
-        view: "sync"
+        id: "comp-labor",
+        title: "법령 룰/생일반차",
+        desc: "연도별 룰 로드 및 자동부여",
+        view: "hr"
       }
     ]
   };
-  renderOrgUnitForm();
-  document.getElementById("org-unit-list").innerHTML = renderOrgUnitRows();
-  document.getElementById("org-tree-view").innerHTML = renderOrgTree();
-  document.getElementById("erp-hr-core").innerHTML = sections.hr.map((item) => renderErpModuleRow(item)).join("");
-  document.getElementById("erp-attendance").innerHTML = sections.attendance.map((item) => renderErpModuleRow(item)).join("");
-  document.getElementById("erp-payroll").innerHTML = sections.payroll.map((item) => renderErpModuleRow(item)).join("");
-  document.getElementById("erp-compliance").innerHTML = sections.compliance.map((item) => renderErpModuleRow(item)).join("");
+
+  Object.entries(sections).forEach(([key, items]) => {
+    const container = document.getElementById(`erp-${key}`);
+    if (!container) return;
+    container.innerHTML = items.map((item) => renderErpModuleCard(item)).join("");
+  });
+
+  renderOrgFormOptions();
+  renderOrgTree();
 }
 
-function renderErpModuleRow(module) {
-  const moduleState = getErpModuleState(module.id);
-  const ownerName = moduleState.ownerId ? (findEmployee(moduleState.ownerId)?.name || "미지정") : "담당자 미지정";
+function renderErpModuleCard(item) {
+  const stateItem = getErpModuleState(item.id);
+  const ownerName = employeeById(stateItem.ownerId)?.name || "담당 미지정";
   return `
     <div class="row-item col">
       <div class="row-main">
-        <div class="row-title">${module.title}</div>
-        <div class="row-desc">${module.desc}</div>
+        <div class="row-title">${item.title}</div>
+        <div class="row-desc">${item.desc}</div>
       </div>
       <div class="erp-module-meta">
-        <select class="field" data-erp-module-id="${module.id}" data-erp-owner>
+        <select class="field" data-erp-module-id="${item.id}" data-erp-owner>
           <option value="">담당자</option>
-          ${state.employees.map((employee) => `<option value="${employee.id}" ${moduleState.ownerId === employee.id ? "selected" : ""}>${employee.name}</option>`).join("")}
+          ${state.employees.map((employee) => `<option value="${employee.id}" ${employee.id === stateItem.ownerId ? "selected" : ""}>${employee.name}</option>`).join("")}
         </select>
-        <select class="field" data-erp-module-id="${module.id}" data-erp-status>
-          ${["plan", "doing", "done", "hold"].map((status) => `<option value="${status}" ${moduleState.status === status ? "selected" : ""}>${erpStatusLabel(status)}</option>`).join("")}
+        <select class="field" data-erp-module-id="${item.id}" data-erp-status>
+          ${["todo", "doing", "done"].map((status) => `<option value="${status}" ${status === stateItem.status ? "selected" : ""}>${status}</option>`).join("")}
         </select>
-        <input class="field" type="date" data-erp-module-id="${module.id}" data-erp-due value="${moduleState.dueDate || ""}">
-        <input class="field" type="text" placeholder="메모" data-erp-module-id="${module.id}" data-erp-note value="${moduleState.note || ""}">
+        <input class="field" type="date" value="${stateItem.dueDate || ""}" data-erp-module-id="${item.id}" data-erp-due>
       </div>
+      <input class="field" type="text" placeholder="운영 메모" value="${stateItem.note || ""}" data-erp-module-id="${item.id}" data-erp-note>
+      <div class="row-desc">현재 담당: ${ownerName}</div>
       <div class="row-item-actions">
-        <span class="tag ${erpStatusTag(moduleState.status)}">${erpStatusLabel(moduleState.status)} · ${ownerName}</span>
-        <button class="btn ghost small" data-action="open-erp-menu" data-view="${module.view}">메뉴 열기</button>
-        <button class="btn primary small" data-action="toggle-erp-module" data-erp-module-id="${module.id}">${moduleState.enabled ? "사용중" : "비활성"}</button>
+        <button class="action-link" type="button" data-action="open-erp-menu" data-view="${item.view}">열기</button>
+        <button class="action-link" type="button" data-action="toggle-erp-module" data-erp-module-id="${item.id}">${stateItem.collapsed ? "열기" : "접기"}</button>
       </div>
     </div>
   `;
@@ -1461,268 +1396,161 @@ function getErpModuleState(moduleId) {
   state.settings.erpModuleState = state.settings.erpModuleState || {};
   if (!state.settings.erpModuleState[moduleId]) {
     state.settings.erpModuleState[moduleId] = {
-      enabled: true,
       ownerId: "",
+      status: "todo",
       dueDate: "",
-      status: "plan",
-      note: ""
+      note: "",
+      collapsed: false
     };
   }
   return state.settings.erpModuleState[moduleId];
 }
 
 function toggleErpModule(moduleId) {
-  if (!moduleId) return;
   const moduleState = getErpModuleState(moduleId);
-  moduleState.enabled = !moduleState.enabled;
-  touchState(`ERP 모듈 ${moduleId} ${moduleState.enabled ? "활성화" : "비활성화"}`);
+  moduleState.collapsed = !moduleState.collapsed;
+  touchState(`ERP 모듈 상태 토글 (${moduleId})`);
   renderErpView();
 }
 
-function erpStatusLabel(status) {
-  if (status === "doing") return "진행중";
-  if (status === "done") return "완료";
-  if (status === "hold") return "보류";
-  return "계획";
-}
-
-function erpStatusTag(status) {
-  if (status === "doing") return "blue";
-  if (status === "done") return "green";
-  if (status === "hold") return "amber";
-  return "purple";
-}
-
-function renderOrgUnitForm() {
+function renderOrgFormOptions() {
   const parentSelect = document.getElementById("org-parent-id");
   const leaderSelect = document.getElementById("org-leader-id");
   parentSelect.innerHTML = `<option value="">상위부서(없음)</option>${state.orgUnits.map((unit) => `<option value="${unit.id}">${unit.name}</option>`).join("")}`;
   leaderSelect.innerHTML = `<option value="">팀장 선택</option>${state.employees.map((employee) => `<option value="${employee.id}">${employee.name}</option>`).join("")}`;
   document.getElementById("org-edit-id").value = ui.orgEditId || "";
+  if (ui.orgEditId) {
+    const editing = state.orgUnits.find((unit) => unit.id === ui.orgEditId);
+    if (editing) {
+      document.getElementById("org-unit-name").value = editing.name;
+      parentSelect.value = editing.parentId || "";
+      leaderSelect.value = editing.leaderId || "";
+      document.getElementById("org-unit-note").value = editing.note || "";
+    }
+  }
 }
 
-function renderOrgUnitRows() {
-  if (!state.orgUnits.length) return emptyState("등록된 부서가 없습니다. 자동구성 또는 신규 등록을 해주세요.");
-  return state.orgUnits.map((unit) => {
-    const members = state.employees.filter((employee) => employee.dept === unit.name);
-    const leaderName = unit.leaderId ? (findEmployee(unit.leaderId)?.name || "미지정") : "미지정";
-    const parent = unit.parentId ? state.orgUnits.find((item) => item.id === unit.parentId)?.name || "-" : "최상위";
-    return `
-      <div class="row-item col">
-        <div class="row-main">
-          <div class="row-title">${unit.name} <span class="tag blue">${members.length}명</span></div>
-          <div class="row-desc">상위부서: ${parent} · 팀장: ${leaderName}</div>
-          <div class="org-members">구성원: ${members.length ? members.map((member) => member.name).join(", ") : "없음"}${unit.note ? ` · 메모: ${unit.note}` : ""}</div>
-        </div>
-        <div class="row-item-actions">
-          <button class="btn ghost small" data-action="edit-org-unit" data-org-unit-id="${unit.id}">수정</button>
-          <button class="btn ghost small" data-action="delete-org-unit" data-org-unit-id="${unit.id}">삭제</button>
-          <button class="btn primary small" data-action="open-erp-menu" data-view="emp">직원목록 열기</button>
-        </div>
-      </div>
-    `;
-  }).join("");
-}
-
-function renderOrgTree() {
-  if (!state.orgUnits.length) return emptyState("부서를 먼저 등록해주세요.");
-  const childrenMap = new Map();
-  state.orgUnits.forEach((unit) => {
-    const key = unit.parentId || "root";
-    if (!childrenMap.has(key)) childrenMap.set(key, []);
-    childrenMap.get(key).push(unit);
-  });
-  const renderNode = (unit, depth = 0) => {
-    const members = state.employees.filter((employee) => employee.dept === unit.name);
-    const indent = depth * 18;
-    const self = `
-      <div class="row-item col" style="margin-left:${indent}px">
-        <div class="row-title">${"└ ".repeat(depth)}${unit.name}</div>
-        <div class="row-desc">팀장: ${unit.leaderId ? (findEmployee(unit.leaderId)?.name || "미지정") : "미지정"} · 인원 ${members.length}명</div>
-      </div>
-    `;
-    const children = (childrenMap.get(unit.id) || []).map((child) => renderNode(child, depth + 1)).join("");
-    return self + children;
-  };
-  return (childrenMap.get("root") || []).map((unit) => renderNode(unit, 0)).join("");
+function resetOrgUnitForm() {
+  ui.orgEditId = "";
+  document.getElementById("org-edit-id").value = "";
+  ["org-unit-name", "org-unit-note"].forEach((id) => { document.getElementById(id).value = ""; });
+  document.getElementById("org-parent-id").value = "";
+  document.getElementById("org-leader-id").value = "";
 }
 
 function saveOrgUnit() {
-  const editId = document.getElementById("org-edit-id").value;
   const name = document.getElementById("org-unit-name").value.trim();
-  const parentId = document.getElementById("org-parent-id").value;
-  const leaderId = document.getElementById("org-leader-id").value;
-  const note = document.getElementById("org-unit-note").value.trim();
   if (!name) {
-    alert("부서명을 입력해주세요.");
+    alert("부서명을 입력하세요.");
     return;
   }
-  const duplicate = state.orgUnits.some((unit) => unit.name === name && unit.id !== editId);
-  if (duplicate) {
-    alert("같은 부서명이 이미 있습니다.");
-    return;
-  }
-  if (editId) {
-    const target = state.orgUnits.find((unit) => unit.id === editId);
-    if (!target) return;
-    target.name = name;
-    target.parentId = parentId && parentId !== editId ? parentId : "";
-    target.leaderId = leaderId;
-    target.note = note;
+  const payload = {
+    id: ui.orgEditId || `org_${Date.now()}`,
+    name,
+    parentId: document.getElementById("org-parent-id").value,
+    leaderId: document.getElementById("org-leader-id").value,
+    note: document.getElementById("org-unit-note").value.trim()
+  };
+  const index = state.orgUnits.findIndex((unit) => unit.id === payload.id);
+  if (index >= 0) {
+    state.orgUnits[index] = payload;
+    touchState(`조직도 수정: ${name}`);
   } else {
-    state.orgUnits.push({
-      id: `org_${Date.now()}`,
-      name,
-      parentId,
-      leaderId,
-      note
-    });
+    state.orgUnits.push(payload);
+    touchState(`조직도 추가: ${name}`);
   }
-  touchState(`조직도 부서 저장 (${name})`);
-  resetOrgUnitForm(false);
+  resetOrgUnitForm();
   renderErpView();
 }
 
-function resetOrgUnitForm(shouldRender = true) {
-  ui.orgEditId = "";
-  document.getElementById("org-edit-id").value = "";
-  document.getElementById("org-unit-name").value = "";
-  document.getElementById("org-parent-id").value = "";
-  document.getElementById("org-leader-id").value = "";
-  document.getElementById("org-unit-note").value = "";
-  if (shouldRender) renderErpView();
+function editOrgUnit(orgUnitId) {
+  const unit = state.orgUnits.find((item) => item.id === orgUnitId);
+  if (!unit) return;
+  ui.orgEditId = orgUnitId;
+  renderErpView();
 }
 
-function editOrgUnit(unitId) {
-  const unit = state.orgUnits.find((item) => item.id === unitId);
+function deleteOrgUnit(orgUnitId) {
+  const unit = state.orgUnits.find((item) => item.id === orgUnitId);
   if (!unit) return;
-  ui.orgEditId = unit.id;
-  renderOrgUnitForm();
-  document.getElementById("org-unit-name").value = unit.name || "";
-  document.getElementById("org-parent-id").value = unit.parentId || "";
-  document.getElementById("org-leader-id").value = unit.leaderId || "";
-  document.getElementById("org-unit-note").value = unit.note || "";
-}
-
-function deleteOrgUnit(unitId) {
-  const unit = state.orgUnits.find((item) => item.id === unitId);
-  if (!unit) return;
-  const usedByEmployees = state.employees.filter((employee) => employee.dept === unit.name);
-  if (usedByEmployees.length) {
-    alert(`해당 부서 소속 직원(${usedByEmployees.length}명)이 있어 삭제할 수 없습니다.`);
-    return;
-  }
-  state.orgUnits = state.orgUnits.filter((item) => item.id !== unitId).map((item) => {
-    if (item.parentId === unitId) item.parentId = "";
-    return item;
-  });
-  touchState(`조직도 부서 삭제 (${unit.name})`);
-  if (ui.orgEditId === unitId) ui.orgEditId = "";
+  if (!confirm(`${unit.name} 부서를 삭제할까요?`)) return;
+  state.orgUnits = state.orgUnits.filter((item) => item.id !== orgUnitId && item.parentId !== orgUnitId);
+  touchState(`조직도 삭제: ${unit.name}`);
+  resetOrgUnitForm();
   renderErpView();
 }
 
 function autoBuildOrgUnits() {
-  const mode = document.getElementById("org-build-mode")?.value || "exact";
-  const rawDepts = [...new Set(state.employees.map((employee) => String(employee.dept || "").trim()).filter(Boolean))];
-  const built = [];
-  const upsert = (name, parentName = "") => {
-    if (!name) return;
-    if (built.some((item) => item.name === name)) return;
-    const existing = state.orgUnits.find((unit) => unit.name === name);
-    const parent = parentName ? (built.find((item) => item.name === parentName) || state.orgUnits.find((item) => item.name === parentName)) : null;
-    built.push({
-      id: existing?.id || `org_${Date.now()}_${name}`,
-      name,
-      parentId: existing?.parentId || parent?.id || "",
-      leaderId: existing?.leaderId || "",
-      note: existing?.note || `직원 목록 기준 자동동기화(${mode})`
+  const mode = document.getElementById("org-build-mode").value;
+  const map = new Map(state.orgUnits.map((unit) => [unit.name, unit]));
+  state.employees.forEach((employee) => {
+    const dept = employee.dept || "미지정";
+    const parts = mode === "slash"
+      ? dept.split("/")
+      : mode === "arrow"
+        ? dept.split(">")
+        : [dept];
+    let parentId = "";
+    parts.map((part) => part.trim()).filter(Boolean).forEach((part) => {
+      if (!map.has(part)) {
+        const unit = { id: `org_${Date.now()}_${map.size}`, name: part, parentId, leaderId: "", note: "자동구성" };
+        map.set(part, unit);
+      }
+      const current = map.get(part);
+      current.parentId = current.parentId || parentId;
+      parentId = current.id;
     });
-  };
-
-  rawDepts.forEach((dept) => {
-    if (mode === "slash" || mode === "arrow") {
-      const tokens = dept.split(mode === "slash" ? "/" : ">").map((item) => item.trim()).filter(Boolean);
-      tokens.forEach((name, index) => upsert(name, index > 0 ? tokens[index - 1] : ""));
-    } else {
-      upsert(dept, "");
-    }
   });
-
-  state.orgUnits = built;
-  touchState(`직원 목록 기준 조직도 자동구성 (${mode})`);
+  state.orgUnits = Array.from(map.values());
+  touchState("조직도 자동구성 실행");
   renderErpView();
 }
 
-function saveBirthdayRule() {
-  state.settings.birthdayRule = {
-    base: document.getElementById("birthday-grant-rule").value,
-    days: Number(document.getElementById("birthday-grant-days").value || 0.5),
-    minMonths: Number(document.getElementById("birthday-min-months").value || 3)
-  };
-  touchState("생일반차 규칙 저장");
-  renderHrView();
+function renderOrgTree() {
+  const container = document.getElementById("org-tree-view");
+  const list = document.getElementById("org-unit-list");
+  list.innerHTML = state.orgUnits.map((unit) => {
+    const leader = employeeById(unit.leaderId)?.name || "미지정";
+    const members = state.employees.filter((employee) => (employee.dept || "").includes(unit.name)).map((employee) => employee.name).join(", ");
+    return `
+      <div class="row-item col">
+        <div class="row-main">
+          <div class="row-title">${unit.name}</div>
+          <div class="row-desc">상위부서: ${unit.parentId ? (state.orgUnits.find((item) => item.id === unit.parentId)?.name || "-") : "없음"}</div>
+          <div class="org-members">팀장: ${leader}${members ? ` · 구성원: ${members}` : ""}</div>
+        </div>
+        <div class="row-item-actions">
+          <button class="action-link" type="button" data-action="edit-org-unit" data-org-unit-id="${unit.id}">수정</button>
+          <button class="action-link" type="button" data-action="delete-org-unit" data-org-unit-id="${unit.id}">삭제</button>
+        </div>
+      </div>
+    `;
+  }).join("") || emptyState("저장된 부서가 없습니다.");
+
+  const treeLines = buildOrgTreeLines();
+  container.innerHTML = treeLines.length
+    ? treeLines.map((line) => `<div class="row-item"><div class="row-title">${line}</div></div>`).join("")
+    : emptyState("조직도 데이터가 없습니다.");
 }
 
-function runBirthdayHalfDayGrant() {
-  const rule = state.settings.birthdayRule || defaultBirthdayRule();
-  const year = ui.hrYear;
-  const grants = [];
-  state.employees.forEach((employee) => {
-    if (!employee.birthDate || !employee.joinDate) return;
-    const join = new Date(employee.joinDate);
-    const 기준일 = new Date(year, 0, 1);
-    const workedMonths = (기준일.getFullYear() - join.getFullYear()) * 12 + (기준일.getMonth() - join.getMonth());
-    if (workedMonths < rule.minMonths) return;
-    const month = Number(employee.birthDate.slice(5, 7));
-    const day = Number(employee.birthDate.slice(8, 10));
-    const date = rule.base === "birthday"
-      ? `${year}-${pad(month)}-${pad(day)}`
-      : `${year}-${pad(month)}-01`;
-    const exists = state.specialLeaves.some((item) => item.empId === employee.id && item.reason === "생일반차" && item.date.startsWith(String(year)));
-    if (exists) return;
-    state.specialLeaves.push({
-      id: `sp_birth_${employee.id}_${year}`,
-      empId: employee.id,
-      action: "grant",
-      reason: "생일반차",
-      days: rule.days,
-      date,
-      evidence: "자동부여",
-      memo: `${year}년 생일반차 자동부여`
-    });
-    grants.push(`${employee.name} ${date}`);
+function buildOrgTreeLines() {
+  const byParent = new Map();
+  state.orgUnits.forEach((unit) => {
+    const key = unit.parentId || "root";
+    if (!byParent.has(key)) byParent.set(key, []);
+    byParent.get(key).push(unit);
   });
-  state.settings.laborRuleLog = grants.length
-    ? `생일반차 자동부여 ${grants.length}건\n${grants.join("\n")}`
-    : "생일반차 자동부여 대상이 없거나 이미 부여되었습니다.";
-  touchState("생일반차 자동부여 실행");
-  renderAll();
-}
-
-async function loadLaborRule() {
-  const year = document.getElementById("labor-rule-year").value;
-  try {
-    const response = await fetch(`./rules/labor/${year}.json?ts=${Date.now()}`, { cache: "no-store" });
-    if (!response.ok) throw new Error(`룰파일 로드 실패 (${response.status})`);
-    const rule = await response.json();
-    state.settings.laborRuleCache[year] = rule;
-    state.settings.laborRuleLog = `${year} 룰파일 로드 완료\n시행일: ${rule.effectiveFrom} ~ ${rule.effectiveTo}\n핵심: ${rule.summary || "-"}`;
-    renderHrView();
-  } catch (error) {
-    state.settings.laborRuleLog = `룰파일 로드 실패: ${error.message}`;
-    renderHrView();
-  }
-}
-
-function activateLaborRuleYear() {
-  const year = Number(document.getElementById("labor-rule-year").value || ui.hrYear);
-  state.settings.activeLaborRuleYear = year;
-  const rule = state.settings.laborRuleCache[String(year)];
-  state.settings.laborRuleLog = rule
-    ? `${year} 룰 활성화 완료\n요약: ${rule.summary || "-"}`
-    : `${year} 룰 활성화 완료(캐시 없음, 먼저 룰파일 불러오기를 실행하세요).`;
-  touchState(`${year} 법령 룰 활성화`);
-  renderHrView();
+  const lines = [];
+  const walk = (parentId, depth) => {
+    const children = byParent.get(parentId || "root") || [];
+    children.sort((a, b) => a.name.localeCompare(b.name, "ko"));
+    children.forEach((unit) => {
+      lines.push(`${"ㆍ".repeat(depth)} ${unit.name}`.trim());
+      walk(unit.id, depth + 1);
+    });
+  };
+  walk("", 0);
+  return lines;
 }
 
 function renderPermissions() {
@@ -1739,9 +1567,7 @@ function renderPermissions() {
           </select>
         </td>
         ${["dashboard", "leave", "cal", "hist", "set", "emp", "mgr", "sub", "spe", "office", "hr", "payroll", "datahub", "erp", "sync"].map((menu) => `
-          <td>
-            <input type="checkbox" data-menu-emp="${employee.id}" data-menu-key="${menu}" ${hasRawMenu(employee.id, menu) ? "checked" : ""}>
-          </td>
+          <td><input type="checkbox" data-menu-emp="${employee.id}" data-menu-key="${menu}" ${hasRawMenu(employee.id, menu) ? "checked" : ""}></td>
         `).join("")}
       </tr>
     `;
@@ -1775,20 +1601,27 @@ function renderManager() {
     renderDashboard();
   });
 
-  const filtered = state.employees.filter((employee) => {
+  const rows = state.employees.map((employee) => {
     const summary = employeeSummary(employee.id, ui.managerYear);
-    const matchName = !ui.managerFilter.search || employee.name.toLowerCase().includes(ui.managerFilter.search);
-    const matchDept = !ui.managerFilter.dept || (employee.dept || "").toLowerCase().includes(ui.managerFilter.dept);
-    const risk = summary.alertLevel === "urgent" || summary.alertLevel === "warning";
-    const matchRisk = ui.managerFilter.risk === "all"
-      || (ui.managerFilter.risk === "risk" && risk)
-      || (ui.managerFilter.risk === "safe" && !risk);
-    const min = Number(ui.managerFilter.usageMin || 0);
-    const max = Number(ui.managerFilter.usageMax || 100);
-    const remainMin = Number(ui.managerFilter.remainMin || -999);
-    const matchUsage = summary.usagePercent >= min && summary.usagePercent <= max;
-    const matchRemain = summary.remain >= remainMin;
-    return matchName && matchDept && matchRisk && matchUsage && matchRemain;
+    const latest = latestRecord(employee.id, ui.managerYear)?.date || "없음";
+    return {
+      employee,
+      summary,
+      latest
+    };
+  }).filter(({ employee, summary }) => {
+    const search = ui.managerFilter.search;
+    const dept = ui.managerFilter.dept;
+    const risk = ui.managerFilter.risk;
+    const usageMin = Number(ui.managerFilter.usageMin || 0);
+    const usageMax = Number(ui.managerFilter.usageMax || 100);
+    const matchesSearch = !search || employee.name.toLowerCase().includes(search);
+    const matchesDept = !dept || (employee.dept || "").toLowerCase().includes(dept);
+    const matchesRisk = risk === "all"
+      || (risk === "risk" && summary.alertLevel !== "safe")
+      || (risk === "safe" && summary.alertLevel === "safe");
+    const matchesUsage = summary.usagePercent >= usageMin && summary.usagePercent <= usageMax;
+    return matchesSearch && matchesDept && matchesRisk && matchesUsage;
   });
   const sorted = [...filtered];
   const sortMode = ui.managerFilter.sort || "name";
@@ -1814,22 +1647,18 @@ function renderManager() {
     kpiCard("blue", "정렬 기준", sortMode, "", "현재 설정")
   ].join("");
 
-  document.getElementById("manager-body").innerHTML = sorted.map((employee) => {
-    const summary = employeeSummary(employee.id, ui.managerYear);
-    const latest = latestRecord(employee.id, ui.managerYear)?.date || "없음";
-    return `
-      <tr>
-        <td>${employeeCell(employee)}</td>
-        <td>${employee.dept || "-"}</td>
-        <td>${summary.total}</td>
-        <td>${summary.used}</td>
-        <td><strong>${summary.remain}</strong></td>
-        <td>${summary.usagePercent}%</td>
-        <td>${latest}</td>
-        <td><button class="action-link" type="button" data-manager-open="${employee.id}">상세</button></td>
-      </tr>
-    `;
-  }).join("");
+  document.getElementById("manager-body").innerHTML = rows.map(({ employee, summary, latest }) => `
+    <tr>
+      <td>${employeeCell(employee)}</td>
+      <td>${employee.dept || "-"}</td>
+      <td>${summary.total.toFixed(1)}</td>
+      <td>${summary.used.toFixed(1)}</td>
+      <td>${summary.remain.toFixed(1)}</td>
+      <td>${summary.usagePercent}%</td>
+      <td>${latest}</td>
+      <td><button class="action-link" type="button" data-manager-open="${employee.id}">상세</button></td>
+    </tr>
+  `).join("") || `<tr><td colspan="8">${emptyState("조건에 맞는 직원이 없습니다.")}</td></tr>`;
 
   document.querySelectorAll("[data-manager-open]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1854,8 +1683,8 @@ function renderSyncPage() {
   document.getElementById("sync-log").textContent = syncStatus.detail;
   const archive = getArchiveSnapshots();
   document.getElementById("snapshot-log").textContent = archive.length
-    ? archive.slice(0, 10).map((item, index) => `${index + 1}. ${item.at} · ${item.message}`).join("\n")
-    : "아직 저장된 스냅샷이 없습니다.";
+    ? archive.map((item) => `${item.savedAt} · ${item.reason}`).join("\n")
+    : "스냅샷 로그가 여기에 표시됩니다.";
 }
 
 function renderSyncStatus() {
@@ -1871,7 +1700,6 @@ function renderSyncStatus() {
 }
 
 function switchView(view) {
-  if (view === "perm" && !confirmAdminAccess()) return;
   if (!hasMenuAccess(currentUser()?.id, view)) return;
   ui.activeView = view;
   document.querySelectorAll(".view").forEach((section) => section.classList.remove("active"));
@@ -1880,25 +1708,9 @@ function switchView(view) {
   renderActiveView();
 }
 
-function confirmAdminAccess() {
-  const savedHash = localStorage.getItem(STORAGE_KEYS.adminPw);
-  if (!savedHash) return true;
-  const input = window.prompt("권한 관리 화면 비밀번호를 입력해 주세요.");
-  if (!input) return false;
-  return btoa(unescape(encodeURIComponent(input))) === savedHash;
-}
-
-function confirmAdminAccess() {
-  const savedHash = localStorage.getItem(STORAGE_KEYS.adminPw);
-  if (!savedHash) return true;
-  const input = window.prompt("권한 관리 화면 비밀번호를 입력해 주세요.");
-  if (!input) return false;
-  return btoa(unescape(encodeURIComponent(input))) === savedHash;
-}
-
 function renderYearTabs(containerId, selectedYear, onClick) {
   document.getElementById(containerId).innerHTML = allYears().map((year) => `
-    <button class="year-tab ${selectedYear === year ? "active" : ""}" type="button" data-year="${year}">${year}년</button>
+    <button class="year-tab${year === selectedYear ? " active" : ""}" type="button" data-year="${year}">${year}년</button>
   `).join("");
   document.getElementById(containerId).querySelectorAll("[data-year]").forEach((button) => {
     button.addEventListener("click", () => onClick(Number(button.dataset.year)));
@@ -1913,7 +1725,7 @@ function renderCalendarGrid() {
   const cells = [];
 
   for (let index = 0; index < firstDay; index += 1) {
-    cells.push(`<button class="day-cell empty" type="button" disabled></button>`);
+    cells.push(`<div class="day-cell empty"></div>`);
   }
 
   for (let day = 1; day <= daysInMonth; day += 1) {
@@ -1946,18 +1758,18 @@ function renderCalendarGrid() {
 
   grid.innerHTML = cells.join("");
   grid.querySelectorAll("[data-date]").forEach((button) => {
-    button.addEventListener("click", () => openRecordModal(button.dataset.date));
+    button.addEventListener("click", () => toggleRecordByDate(button.dataset.date));
   });
 }
 
 function renderMonthHistory() {
   const prefix = `${ui.currentYear}-${pad(ui.currentMonth + 1)}`;
-  const monthRecords = state.records
+  const records = state.records
     .filter((record) => record.empId === ui.selectedEmployeeId && record.date.startsWith(prefix))
     .sort((left, right) => left.date.localeCompare(right.date));
   document.getElementById("month-history-title").textContent = `${ui.currentMonth + 1}월 기록`;
-  document.getElementById("month-history-count").textContent = `${monthRecords.length}건`;
-  document.getElementById("month-history-body").innerHTML = monthRecords.length ? monthRecords.map(renderRecordRow).join("") : emptyState("이번 달 기록이 없습니다.");
+  document.getElementById("month-history-count").textContent = `${records.length}건`;
+  document.getElementById("month-history-body").innerHTML = records.length ? records.map(renderRecordRow).join("") : emptyState("이번 달 기록이 없습니다.");
 }
 
 function renderRecordRow(record) {
@@ -1967,10 +1779,7 @@ function renderRecordRow(record) {
         <div class="row-title">${record.date} · ${record.type}</div>
         <div class="row-desc">사용량 ${leaveDelta(record.type)}일 · ${record.memo || "메모 없음"} · 등록 ${record.createdAt || record.updatedAt || "-"}</div>
       </div>
-      <div class="button-row">
-        <span class="tag ${record.type === "연차" ? "blue" : "amber"}">${leaveDelta(record.type)}일</span>
-        <button class="action-link" type="button" data-record-delete="${record.id}">삭제</button>
-      </div>
+      <button class="action-link" type="button" data-record-delete="${record.id}">삭제</button>
     </div>
   `;
 }
@@ -1979,28 +1788,10 @@ function renderSubRow(item) {
   return `
     <div class="row-item">
       <div class="row-main">
-        <div class="row-title">${item.date} · ${item.type === "grant" ? "부여" : "사용"} ${item.days}일</div>
+        <div class="row-title">${item.date} · ${item.type === "grant" ? "부여" : "사용"} ${Number(item.days).toFixed(1)}일</div>
         <div class="row-desc">${item.memo || "메모 없음"}</div>
       </div>
-      <div class="button-row">
-        <span class="tag ${item.type === "grant" ? "green" : "red"}">${item.type === "grant" ? "+" : "-"}${item.days}</span>
-        <button class="action-link" type="button" data-sub-delete="${item.id}">삭제</button>
-      </div>
-    </div>
-  `;
-}
-
-function renderSpecialRow(item) {
-  return `
-    <div class="row-item">
-      <div class="row-main">
-        <div class="row-title">${item.date} · ${item.reason} · ${item.action === "grant" ? "부여" : "사용"} ${item.days}일</div>
-        <div class="row-desc">증빙: ${item.evidence || "-"} / 메모: ${item.memo || "-"}</div>
-      </div>
-      <div class="button-row">
-        <span class="tag ${item.action === "grant" ? "green" : "red"}">${item.action === "grant" ? "+" : "-"}${item.days}</span>
-        <button class="action-link" type="button" data-special-delete="${item.id}">삭제</button>
-      </div>
+      <button class="action-link" type="button" data-sub-delete="${item.id}">삭제</button>
     </div>
   `;
 }
@@ -2024,11 +1815,11 @@ function buildDepartmentSummary(summaries) {
   const map = new Map();
   summaries.forEach((item) => {
     const key = item.employee.dept || "미지정";
-    const value = map.get(key) || { total: 0, used: 0, count: 0 };
-    value.total += item.total;
-    value.used += item.used;
-    value.count += 1;
-    map.set(key, value);
+    if (!map.has(key)) map.set(key, { total: 0, used: 0, count: 0 });
+    const entry = map.get(key);
+    entry.total += item.total;
+    entry.used += item.used;
+    entry.count += 1;
   });
 
   return Array.from(map.entries()).map(([dept, value]) => {
@@ -2067,526 +1858,225 @@ function buildAlerts(summaries) {
         name: item.employee.name,
         dept: item.employee.dept || "부서 미지정",
         metric: `잔여 ${item.remain}일 / 사용률 ${item.usagePercent}%`,
-        reason: `${state.settings.warningMonth}월 이후 소멸 위험 기준에 해당합니다.`,
+        reason: `${state.settings.warningMonth}월 이후 소멸 위험`,
         badge: "주의",
         tone: "amber"
       });
     }
-
     if (item.promotionNeeded) {
       alerts.push({
         empId: item.employee.id,
         name: item.employee.name,
         dept: item.employee.dept || "부서 미지정",
         metric: `잔여 ${item.remain}일 / 사용률 ${item.usagePercent}%`,
-        reason: "촉진 대상 기준을 충족했습니다.",
+        reason: "연차 촉진 대상입니다.",
         badge: "촉진",
-        tone: "purple"
+        tone: "amber"
       });
     }
   });
-  return alerts.sort((left, right) => {
-    const order = { red: 0, amber: 1, purple: 2, green: 3 };
-    return order[left.tone] - order[right.tone];
-  });
+  return alerts;
 }
 
-function employeeSummary(empId, year) {
-  const employee = employeeById(empId);
-  const records = state.records.filter((record) => record.empId === empId && record.date.startsWith(String(year)));
-  const used = round(records.reduce((sum, record) => sum + leaveDelta(record.type), 0));
-  const total = getTotal(empId, year);
-  const remain = round(total - used);
-  const usagePercent = total ? Math.min(999, Math.round((used / total) * 100)) : 0;
-  const halfCount = records.filter((record) => record.type !== "연차").length;
-  const currentMonth = new Date().getMonth() + 1;
-  const expiryRisk = currentMonth >= state.settings.warningMonth && remain > state.settings.expiryRiskDays;
-  const promotionNeeded = currentMonth >= state.settings.warningMonth && remain >= state.settings.promotionMinDays && usagePercent <= state.settings.promotionMaxUsagePercent;
-  const alertLevel = remain <= 0 ? "urgent" : expiryRisk ? "warning" : "safe";
-  const alertLabel = remain <= 0 ? "소진 완료" : expiryRisk ? "소멸 주의" : "안정";
-  return { employee, total, used, remain, usagePercent, halfCount, expiryRisk, promotionNeeded, alertLevel, alertLabel };
+function currentUser() {
+  return employeeById(ui.selectedEmployeeId) || state.employees[0] || null;
 }
 
-function moveMonth(diff) {
-  const date = new Date(ui.currentYear, ui.currentMonth + diff, 1);
-  ui.currentYear = date.getFullYear();
-  ui.currentMonth = date.getMonth();
+function employeeById(id) {
+  return state.employees.find((employee) => employee.id === id) || null;
+}
+
+function findEmployee(id) {
+  return employeeById(id);
+}
+
+function recordsOnDate(empId, date) {
+  return state.records.filter((record) => record.empId === empId && record.date === date);
+}
+
+function moveMonth(delta) {
+  const next = new Date(ui.currentYear, ui.currentMonth + delta, 1);
+  ui.currentYear = next.getFullYear();
+  ui.currentMonth = next.getMonth();
   renderCalendarView();
   renderHistory();
 }
 
-function openRecordModal(date = "") {
-  const options = state.employees.map((employee) => `<option value="${employee.id}" ${employee.id === ui.selectedEmployeeId ? "selected" : ""}>${employee.name}</option>`).join("");
-  openModal("휴가 기록 추가", "연차와 반차를 기록하면 자동저장됩니다.", `
-    <label class="field-label">직원</label>
-    <select id="record-emp" class="field">${options}</select>
-    <label class="field-label">날짜</label>
-    <input id="record-date" class="field" type="date" value="${date}">
-    <label class="field-label">유형</label>
-    <select id="record-type" class="field">
-      <option value="연차">연차</option>
-      <option value="반차-오전">반차-오전</option>
-      <option value="반차-오후">반차-오후</option>
-      <option value="반반차-오전">반반차-오전</option>
-      <option value="반반차-오후">반반차-오후</option>
-    </select>
-    <label class="field-label">메모</label>
-    <textarea id="record-memo" class="field" rows="3" placeholder="메모를 남겨두면 대시보드에서 참고하기 좋습니다."></textarea>
-    <div class="button-row">
-      <button class="btn ghost" type="button" data-action="close-modal">취소</button>
-      <button class="btn primary" type="button" id="record-save-btn">저장</button>
-    </div>
-  `);
-  document.getElementById("record-save-btn").addEventListener("click", saveRecordFromModal);
-}
-
-function saveRecordFromModal() {
-  const empId = document.getElementById("record-emp").value;
-  const date = document.getElementById("record-date").value;
-  const type = document.getElementById("record-type").value;
-  const memo = document.getElementById("record-memo").value.trim();
-  if (!date) {
-    alert("날짜를 선택해 주세요.");
-    return;
-  }
-  if (state.records.some((record) => record.empId === empId && record.date === date && record.type === type)) {
-    alert("같은 날짜와 유형의 기록이 이미 있습니다.");
-    return;
-  }
-  state.records.push({ id: `r${Date.now()}`, empId, date, type, memo });
-  ui.selectedEmployeeId = empId;
-  const parts = date.split("-");
-  ui.currentYear = Number(parts[0]);
-  ui.currentMonth = Number(parts[1]) - 1;
-  touchState("휴가 기록 추가");
-  closeModal();
-  renderAll();
-}
-
-function openEmployeeModal(empId = "") {
-  const employee = employeeById(empId);
-  const colorChoices = COLORS.map((color) => `
-    <button type="button" class="action-link" data-color-pick="${color}" style="background:${color};color:#fff;border:none">${color === (employee?.color || COLORS[0]) ? "선택됨" : "색상"}</button>
-  `).join("");
-  openModal(employee ? "직원 정보 수정" : "직원 추가", "직원 기본 정보를 입력합니다.", `
-    <input id="employee-id" type="hidden" value="${employee?.id || ""}">
-    <label class="field-label">이름</label>
-    <input id="employee-name" class="field" type="text" value="${employee?.name || ""}">
-    <label class="field-label">부서</label>
-    <input id="employee-dept" class="field" type="text" value="${employee?.dept || ""}">
-    <label class="field-label">직책</label>
-    <input id="employee-role" class="field" type="text" value="${employee?.role || ""}">
-    <label class="field-label">입사일</label>
-    <input id="employee-join" class="field" type="date" value="${employee?.joinDate || ""}">
-    <label class="field-label">대표색상</label>
-    <input id="employee-color" class="field" type="text" value="${employee?.color || COLORS[0]}">
-    <label class="field-label">프로필 이미지 URL</label>
-    <input id="employee-photo" class="field" type="text" value="${employee?.photo || ""}" placeholder="https://... 또는 아래 파일 업로드">
-    <label class="field-label">프로필 이미지 파일 업로드</label>
-    <input id="employee-photo-file" class="field" type="file" accept="image/*">
-    <div class="hint-box">이미지는 URL 또는 파일 업로드(브라우저 내 Base64)로 등록할 수 있습니다.</div>
-    <div class="button-row">${colorChoices}</div>
-    <div class="button-row">
-      <button class="btn ghost" type="button" data-action="close-modal">취소</button>
-      <button class="btn primary" type="button" id="employee-save-btn">저장</button>
-    </div>
-  `);
-  document.querySelectorAll("[data-color-pick]").forEach((button) => {
-    button.addEventListener("click", () => {
-      document.getElementById("employee-color").value = button.dataset.colorPick;
-    });
-  });
-  document.getElementById("employee-photo-file").addEventListener("change", (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      document.getElementById("employee-photo").value = String(reader.result || "");
-    };
-    reader.readAsDataURL(file);
-  });
-  document.getElementById("employee-save-btn").addEventListener("click", saveEmployeeFromModal);
-}
-
-function saveEmployeeFromModal() {
-  const empId = document.getElementById("employee-id").value;
-  const name = document.getElementById("employee-name").value.trim();
-  const dept = document.getElementById("employee-dept").value.trim();
-  const role = document.getElementById("employee-role").value.trim();
-  const joinDate = document.getElementById("employee-join").value;
-  const color = document.getElementById("employee-color").value.trim() || COLORS[0];
-  const photo = document.getElementById("employee-photo").value.trim();
-  if (!name) {
-    alert("이름을 입력해 주세요.");
-    return;
-  }
-
-  if (empId) {
-    const employee = employeeById(empId);
-    Object.assign(employee, { name, dept, role, joinDate, color, photo });
+function toggleRecordByDate(date) {
+  const existing = state.records.find((record) => record.empId === ui.selectedEmployeeId && record.date === date && record.type === "연차");
+  if (existing) {
+    state.records = state.records.filter((record) => record.id !== existing.id);
+    touchState(`연차 기록 삭제 ${date}`);
   } else {
-    const newId = `e${Date.now()}`;
-    state.employees.push({ id: newId, name, dept, role, joinDate, color, photo });
-    state.perms[newId] = { grade: "normal", menus: {} };
-    ui.selectedEmployeeId = newId;
-  }
-  touchState(empId ? "직원 정보 수정" : "직원 추가");
-  closeModal();
-  renderAll();
-}
-
-function openSubLeaveModal() {
-  const options = state.employees.map((employee) => `<option value="${employee.id}" ${employee.id === ui.subEmployeeId ? "selected" : ""}>${employee.name}</option>`).join("");
-  openModal("대체휴가 부여 / 사용", "부여 또는 사용 이력을 저장하면 전체 대시보드에도 즉시 반영됩니다.", `
-    <label class="field-label">직원</label>
-    <select id="sub-emp" class="field">${options}</select>
-    <label class="field-label">유형</label>
-    <select id="sub-type" class="field">
-      <option value="grant">부여</option>
-      <option value="use">사용</option>
-    </select>
-    <label class="field-label">일수</label>
-    <input id="sub-days" class="field" type="number" min="0.5" step="0.5" value="1">
-    <label class="field-label">날짜</label>
-    <input id="sub-date" class="field" type="date" value="${formatDateKey(new Date())}">
-    <label class="field-label">메모</label>
-    <textarea id="sub-memo" class="field" rows="3"></textarea>
-    <div class="button-row">
-      <button class="btn ghost" type="button" data-action="close-modal">취소</button>
-      <button class="btn primary" type="button" id="sub-save-btn">저장</button>
-    </div>
-  `);
-  document.getElementById("sub-save-btn").addEventListener("click", saveSubLeaveFromModal);
-}
-
-function openBulkSubLeaveModal() {
-  openModal("대체휴가 일괄 부여", "여러 직원을 체크해서 같은 일수와 날짜로 한 번에 부여합니다.", `
-    <div class="hint-box">일괄 기능은 부여 전용입니다. 사용 차감은 기존 개별 입력으로 관리해 주세요.</div>
-    <label class="field-label">부여할 직원</label>
-    <div class="stacked-fields">
-      ${state.employees.map((employee) => `
-        <label class="checkbox-row">
-          <input type="checkbox" data-bulk-emp="${employee.id}" ${employee.id === ui.subEmployeeId ? "checked" : ""}>
-          <span>${employee.name} · ${employee.dept || "부서 미지정"}</span>
-        </label>
-      `).join("")}
-    </div>
-    <div class="button-row">
-      <button class="btn ghost small" type="button" id="bulk-select-all">전체 선택</button>
-      <button class="btn ghost small" type="button" id="bulk-clear-all">선택 해제</button>
-    </div>
-    <label class="field-label">일수</label>
-    <input id="bulk-sub-days" class="field" type="number" min="0.5" step="0.5" value="1">
-    <label class="field-label">날짜</label>
-    <input id="bulk-sub-date" class="field" type="date" value="${formatDateKey(new Date())}">
-    <label class="field-label">메모</label>
-    <textarea id="bulk-sub-memo" class="field" rows="3" placeholder="예: 공휴일 근무 보상"></textarea>
-    <div class="button-row">
-      <button class="btn ghost" type="button" data-action="close-modal">취소</button>
-      <button class="btn primary" type="button" id="bulk-sub-save-btn">일괄 부여 저장</button>
-    </div>
-  `);
-
-  document.getElementById("bulk-select-all").addEventListener("click", () => {
-    document.querySelectorAll("[data-bulk-emp]").forEach((input) => {
-      input.checked = true;
-    });
-  });
-
-  document.getElementById("bulk-clear-all").addEventListener("click", () => {
-    document.querySelectorAll("[data-bulk-emp]").forEach((input) => {
-      input.checked = false;
-    });
-  });
-
-  document.getElementById("bulk-sub-save-btn").addEventListener("click", saveBulkSubLeaveFromModal);
-}
-
-function openSpecialLeaveModal() {
-  const options = state.employees.map((employee) => `<option value="${employee.id}" ${employee.id === ui.specialEmployeeId ? "selected" : ""}>${employee.name}</option>`).join("");
-  openModal("특별휴가 등록", "연차와 별개로 독립 잔여일수로 관리됩니다.", `
-    <label class="field-label">직원</label>
-    <select id="special-emp" class="field">${options}</select>
-    <label class="field-label">처리</label>
-    <select id="special-action" class="field">
-      <option value="grant">부여</option>
-      <option value="use">사용</option>
-    </select>
-    <label class="field-label">사유</label>
-    <select id="special-reason" class="field">
-      <option value="경조사">경조사</option>
-      <option value="병가">병가</option>
-      <option value="포상휴가">포상휴가</option>
-      <option value="생일반차">생일반차</option>
-      <option value="기타휴가">기타휴가</option>
-    </select>
-    <label class="field-label">일수</label>
-    <input id="special-days" class="field" type="number" min="0.5" step="0.5" value="1">
-    <label class="field-label">날짜</label>
-    <input id="special-date" class="field" type="date" value="${formatDateKey(new Date())}">
-    <label class="field-label">증빙 서류 (파일명/링크 메모)</label>
-    <input id="special-evidence" class="field" type="text" placeholder="예: 병가진단서_홍길동_2026-04.pdf">
-    <label class="field-label">메모</label>
-    <textarea id="special-memo" class="field" rows="3"></textarea>
-    <div class="button-row">
-      <button class="btn ghost" type="button" data-action="close-modal">취소</button>
-      <button class="btn primary" type="button" id="special-save-btn">저장</button>
-    </div>
-  `);
-  document.getElementById("special-reason").addEventListener("change", (event) => {
-    if (event.target.value === "생일반차") {
-      document.getElementById("special-days").value = "0.5";
-    }
-  });
-  document.getElementById("special-save-btn").addEventListener("click", saveSpecialLeaveFromModal);
-}
-
-function saveSubLeaveFromModal() {
-  const empId = document.getElementById("sub-emp").value;
-  const type = document.getElementById("sub-type").value;
-  const days = Number(document.getElementById("sub-days").value);
-  const date = document.getElementById("sub-date").value;
-  const memo = document.getElementById("sub-memo").value.trim();
-  if (!date || !days) {
-    alert("날짜와 일수를 확인해 주세요.");
-    return;
-  }
-  if (type === "use" && subBalance(empId) < days && !window.confirm(`잔여 대체휴가(${subBalance(empId)}일)보다 많이 사용합니다. 계속할까요?`)) {
-    return;
-  }
-  state.subLeaves.push({ id: `s${Date.now()}`, empId, type, days, date, memo });
-  ui.subEmployeeId = empId;
-  touchState("대체휴가 저장");
-  closeModal();
-  renderAll();
-}
-
-function saveBulkSubLeaveFromModal() {
-  const employeeIds = Array.from(document.querySelectorAll("[data-bulk-emp]:checked")).map((input) => input.dataset.bulkEmp);
-  const days = Number(document.getElementById("bulk-sub-days").value);
-  const date = document.getElementById("bulk-sub-date").value;
-  const memo = document.getElementById("bulk-sub-memo").value.trim();
-  if (!employeeIds.length) {
-    alert("직원을 한 명 이상 선택해 주세요.");
-    return;
-  }
-  if (!date || !days) {
-    alert("날짜와 일수를 확인해 주세요.");
-    return;
-  }
-  employeeIds.forEach((empId, index) => {
-    state.subLeaves.push({
-      id: `s${Date.now()}_${index}`,
-      empId,
-      type: "grant",
-      days,
+    state.records.push({
+      id: `r_${Date.now()}`,
+      empId: ui.selectedEmployeeId,
       date,
-      memo
+      type: "연차",
+      memo: "달력에서 등록"
     });
-  });
-  ui.subEmployeeId = employeeIds[0];
-  touchState("대체휴가 일괄 부여");
-  closeModal();
-  renderAll();
-}
-
-function saveSpecialLeaveFromModal() {
-  const empId = document.getElementById("special-emp").value;
-  const action = document.getElementById("special-action").value;
-  const reason = document.getElementById("special-reason").value;
-  const days = Number(document.getElementById("special-days").value);
-  const date = document.getElementById("special-date").value;
-  const evidence = document.getElementById("special-evidence").value.trim();
-  const memo = document.getElementById("special-memo").value.trim();
-
-  if (!date || !days || days <= 0) {
-    alert("날짜와 일수를 확인해 주세요.");
-    return;
+    touchState(`연차 기록 추가 ${date}`);
   }
-  if (action === "use" && specialBalanceByReason(empId, reason) < days) {
-    alert(`해당 사유의 잔여 일수(${specialBalanceByReason(empId, reason)}일)보다 많이 사용할 수 없습니다.`);
-    return;
-  }
-
-  state.specialLeaves.push({
-    id: `sp${Date.now()}`,
-    empId,
-    action,
-    reason,
-    days,
-    date,
-    evidence,
-    memo
-  });
-  ui.specialEmployeeId = empId;
-  touchState("특별휴가 저장");
-  closeModal();
-  renderAll();
-}
-
-function openModal(title, subtitle, body) {
-  document.getElementById("modal-title").textContent = title;
-  document.getElementById("modal-subtitle").textContent = subtitle;
-  document.getElementById("modal-body").innerHTML = body;
-  document.getElementById("modal-overlay").classList.remove("hidden");
-}
-
-function closeModal() {
-  document.getElementById("modal-overlay").classList.add("hidden");
-}
-
-function deleteEmployee(empId) {
-  const employee = employeeById(empId);
-  if (!employee) return;
-  if (!window.confirm(`${employee.name} 직원을 삭제할까요? 관련 기록도 함께 삭제됩니다.`)) return;
-  state.employees = state.employees.filter((item) => item.id !== empId);
-  state.records = state.records.filter((item) => item.empId !== empId);
-  state.subLeaves = state.subLeaves.filter((item) => item.empId !== empId);
-  state.specialLeaves = state.specialLeaves.filter((item) => item.empId !== empId);
-  Object.keys(state.hrRecords).forEach((key) => {
-    if (key.startsWith(`${empId}_`)) delete state.hrRecords[key];
-  });
-  delete state.perms[empId];
-  initializeSelections();
-  touchState("직원 삭제");
-  renderAll();
-}
-
-function deleteRecord(recordId) {
-  if (!window.confirm("이 기록을 삭제할까요?")) return;
-  state.records = state.records.filter((record) => record.id !== recordId);
-  touchState("휴가 기록 삭제");
-  renderAll();
-}
-
-function deleteSubLeave(subId) {
-  if (!window.confirm("이 대체휴가 이력을 삭제할까요?")) return;
-  state.subLeaves = state.subLeaves.filter((item) => item.id !== subId);
-  touchState("대체휴가 이력 삭제");
-  renderAll();
-}
-
-function deleteSpecialLeave(specialId) {
-  if (!window.confirm("이 특별휴가 이력을 삭제할까요?")) return;
-  state.specialLeaves = state.specialLeaves.filter((item) => item.id !== specialId);
-  touchState("특별휴가 이력 삭제");
-  renderAll();
-}
-
-document.body.addEventListener("click", (event) => {
-  const recordDelete = event.target.closest("[data-record-delete]");
-  if (recordDelete) deleteRecord(recordDelete.dataset.recordDelete);
-});
-
-function addSettingYear() {
-  const nextYear = Math.max(...allYears()) + 1;
-  const key = `${ui.settingsEmployeeId}_${nextYear}`;
-  state.totals[key] = state.totals[key] ?? accrual(
-    employeeById(ui.settingsEmployeeId)?.joinDate,
-    nextYear,
-    employeeById(ui.settingsEmployeeId)?.fiscalYearMonth
-  );
-  renderSettings();
-}
-
-function touchState(message) {
-  state.updatedAt = new Date().toISOString();
-  state.auditLogs.unshift({
-    message,
-    at: formatDateTime(new Date())
-  });
-  state.auditLogs = state.auditLogs.slice(0, 200);
-  localStorage.setItem(STORAGE_KEYS.draft, JSON.stringify(state));
-  archiveSnapshot(`자동저장: ${message}`);
-  const prefs = getSyncPrefs();
-  if (prefs.autoSave) {
-    scheduleSharedSave(message);
-  } else {
-    setSyncStatus("idle", "초안", `${message} 완료 · 자동저장이 꺼져 있습니다.`);
-  }
-}
-
-function saveOpsMemo() {
-  state.settings.opsMemo = document.getElementById("ops-memo").value.trim();
-  touchState("운영 메모 저장");
+  renderCalendarView();
+  renderHistory();
   renderDashboard();
 }
 
-function scheduleSharedSave(message) {
-  setSyncStatus("saving", "저장중", `${message} 반영 중...`);
-  clearTimeout(saveTimer);
-  saveTimer = window.setTimeout(() => {
-    saveSharedData(message);
-  }, 900);
+function latestRecord(empId, year) {
+  return state.records
+    .filter((record) => record.empId === empId && record.date.startsWith(String(year)))
+    .sort((left, right) => right.date.localeCompare(left.date))[0] || null;
+}
+
+function employeeSummary(empId, year) {
+  const employee = employeeById(empId);
+  const total = getTotal(empId, year);
+  const used = round(state.records
+    .filter((record) => record.empId === empId && record.date.startsWith(String(year)))
+    .reduce((sum, record) => sum + leaveDelta(record.type), 0));
+  const remain = round(total - used);
+  const usagePercent = total ? Math.min(100, Math.max(0, Math.round((used / total) * 100))) : 0;
+  const expiryRisk = remain > 0 && new Date().getMonth() + 1 >= Number(state.settings.warningMonth || 10);
+  const promotionNeeded = remain >= Number(state.settings.promotionMinDays || 5) && usagePercent <= Number(state.settings.promotionMaxUsagePercent || 40);
+  const alertLevel = remain <= 0 ? "urgent" : expiryRisk || promotionNeeded ? "warning" : "safe";
+  const alertLabel = remain <= 0 ? "소진" : expiryRisk ? "소멸 위험" : promotionNeeded ? "촉진 필요" : "안정";
+  const halfCount = state.records
+    .filter((record) => record.empId === empId && record.date.startsWith(String(year)) && record.type !== "연차").length;
+  return { employee, total, used, remain, usagePercent, expiryRisk, promotionNeeded, alertLevel, alertLabel, halfCount };
+}
+
+function leaveDelta(type) {
+  if (type === "반차") return 0.5;
+  if (type === "반반차") return 0.25;
+  return 1;
+}
+
+function getTotal(empId, year) {
+  const manual = state.totals[`${empId}_${year}`];
+  if (manual !== undefined && manual !== null && manual !== "") return Number(manual);
+  const employee = employeeById(empId);
+  return accrual(employee?.joinDate, year, employee?.fiscalYearMonth || 1);
+}
+
+function accrual(joinDate, year, fiscalYearMonth = 1) {
+  if (!joinDate) return 0;
+  const join = new Date(joinDate);
+  const periodStart = new Date(year, Number(fiscalYearMonth || 1) - 1, 1);
+  const diffYears = periodStart.getFullYear() - join.getFullYear() - (periodStart < new Date(join.getFullYear() + (periodStart.getMonth() < join.getMonth() ? 1 : 0), join.getMonth(), join.getDate()) ? 1 : 0);
+  if (diffYears < 1) return 11;
+  return Math.min(25, 15 + Math.max(0, Math.floor((diffYears - 1) / 2)));
+}
+
+function calcRetirementPayout(empId, year) {
+  const employee = employeeById(empId);
+  const summary = employeeSummary(empId, year);
+  const monthlyPay = Number(employee?.monthlyBasePay || 0);
+  const workHours = Number(employee?.workHoursPerDay || state.settings.defaultWorkHoursPerDay || 8);
+  const monthlyStandardHours = Number(state.settings.monthlyStandardHours || 209);
+  const unitPrice = Number(employee?.leaveUnitPrice || 0) || (monthlyPay && workHours ? ((monthlyPay / monthlyStandardHours) * workHours) : 0);
+  const averageDailyWage = Number(employee?.averageDailyWage || 0);
+  const effectiveUnit = Math.max(unitPrice, averageDailyWage || 0);
+  return {
+    remainingDays: summary.remain,
+    formula: effectiveUnit ? `${summary.remain.toFixed(2)}일 × ${Math.round(effectiveUnit).toLocaleString("ko-KR")}원` : "1일 정산 단가 미입력",
+    amount: round(summary.remain * effectiveUnit),
+    note: effectiveUnit ? "내부 참고 계산값입니다." : "월 통상임금/평균임금/정산단가 입력 후 확인하세요."
+  };
+}
+
+function getSyncPrefs() {
+  return Object.assign({ autoSave: false }, readJsonStorage(STORAGE_KEYS.syncPrefs) || {});
+}
+
+function saveSyncPrefs(prefs) {
+  localStorage.setItem(STORAGE_KEYS.syncPrefs, JSON.stringify(prefs));
+}
+
+function touchState(action) {
+  state.updatedAt = formatDateTime(new Date());
+  appendAudit(action);
+  localStorage.setItem(STORAGE_KEYS.draft, JSON.stringify(state));
+  queueAutoSave();
+  renderSyncStatus();
+}
+
+function appendAudit(action) {
+  state.auditLogs = state.auditLogs || [];
+  state.auditLogs.push({ action, at: formatDateTime(new Date()) });
+  if (state.auditLogs.length > 200) state.auditLogs = state.auditLogs.slice(-200);
+}
+
+function queueAutoSave() {
+  const prefs = getSyncPrefs();
+  if (!prefs.autoSave) return;
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { saveSharedNow(); }, 900);
 }
 
 async function saveSharedNow() {
-  await saveSharedData("수동 저장");
-}
-
-async function saveSharedData(message) {
-  const token = localStorage.getItem(STORAGE_KEYS.token);
-  if (!token) {
-    setSyncStatus("error", "토큰없음", `${message} 완료. 공유 JSON에 저장하려면 관리자 토큰을 설정해 주세요.`);
-    return;
-  }
-
   if (saveInFlight) {
     saveQueued = true;
     return;
   }
+  const token = localStorage.getItem(STORAGE_KEYS.token);
+  if (!token) {
+    setSyncStatus("error", "토큰없음", "GitHub 토큰이 없어 공유 저장을 할 수 없습니다.");
+    renderSyncStatus();
+    return;
+  }
 
   saveInFlight = true;
+  setSyncStatus("saving", "저장중", "GitHub에 공유 데이터를 저장하고 있습니다.");
+  renderSyncStatus();
+
   try {
-    if (!githubSha) {
-      await refreshGithubSha();
-    }
-    const content = btoa(unescape(encodeURIComponent(`${JSON.stringify(state, null, 2)}\n`)));
+    const body = {
+      message: `Update shared data ${new Date().toISOString()}`,
+      content: btoa(unescape(encodeURIComponent(JSON.stringify(state, null, 2)))),
+      branch: state.repo.branch,
+      sha: githubSha || undefined
+    };
     const response = await fetch(githubApiUrl(state.repo.owner, state.repo.name, state.repo.dataPath), {
       method: "PUT",
-      headers: githubHeaders(true),
-      body: JSON.stringify({
-        message: `chore: update shared vacation data (${message})`,
-        content,
-        sha: githubSha || undefined,
-        branch: state.repo.branch
-      })
+      headers: {
+        ...githubHeaders(true),
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
     });
-
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      throw new Error(payload.message || `GitHub 저장 실패 (${response.status})`);
-    }
-
+    if (!response.ok) throw new Error(`저장 실패 (${response.status})`);
     const payload = await response.json();
     githubSha = payload.content?.sha || githubSha;
     lastSavedAt = formatDateTime(new Date());
-    archiveSnapshot(`배포 저장: ${message}`);
-    setSyncStatus("success", "저장됨", `${message} 완료 · GitHub 공유 JSON이 업데이트되었습니다.`);
+    archiveSnapshot("자동/수동 저장");
+    setSyncStatus("success", "완료", "공유 JSON 저장이 완료되었습니다.");
   } catch (error) {
-    setSyncStatus("error", "실패", error.message);
+    setSyncStatus("error", "오류", error.message || "저장 중 오류가 발생했습니다.");
   } finally {
     saveInFlight = false;
+    renderSyncStatus();
     if (saveQueued) {
       saveQueued = false;
-      saveSharedData("연속 변경");
+      saveSharedNow();
     }
-    renderSyncStatus();
   }
 }
 
 async function reloadFromRemote() {
+  setSyncStatus("saving", "새로고침", "공유 데이터를 다시 불러오고 있습니다.");
+  renderSyncStatus();
   try {
     const response = await fetch(`./data/app-data.json?ts=${Date.now()}`, { cache: "no-store" });
-    if (!response.ok) throw new Error(`공유 데이터 다시 읽기 실패 (${response.status})`);
+    if (!response.ok) throw new Error(`공유 파일 로딩 실패 (${response.status})`);
     state = await response.json();
     normalizeState();
     initializeSelections();
     lastLoadedAt = formatDateTime(new Date());
-    setSyncStatus("success", "새로고침", "GitHub Pages에 배포된 공유 데이터를 다시 읽었습니다.");
+    setSyncStatus("success", "공유", "공유 JSON 데이터를 다시 불러왔습니다.");
+    await refreshGithubSha();
     renderAll();
   } catch (error) {
-    setSyncStatus("error", "실패", error.message);
+    setSyncStatus("error", "오류", error.message || "새로고침 중 오류가 발생했습니다.");
     renderSyncStatus();
   }
 }
@@ -2596,183 +2086,62 @@ function updateRepoFields() {
   state.repo.name = document.getElementById("repo-name").value.trim() || state.repo.name;
   state.repo.branch = document.getElementById("repo-branch").value.trim() || state.repo.branch;
   state.repo.dataPath = document.getElementById("repo-path").value.trim() || state.repo.dataPath;
-  touchState("저장소 설정 변경");
-  refreshGithubSha();
-}
-
-function hydrateSyncForm() {
-  const prefs = getSyncPrefs();
-  document.getElementById("auto-save-toggle").checked = !!prefs.autoSave;
-}
-
-function getSyncPrefs() {
-  return readJsonStorage(STORAGE_KEYS.syncPrefs) || { autoSave: true };
-}
-
-function saveSyncPrefs(prefs) {
-  localStorage.setItem(STORAGE_KEYS.syncPrefs, JSON.stringify(prefs));
+  touchState("GitHub 연결 정보 수정");
 }
 
 function saveToken() {
   const token = document.getElementById("github-token").value.trim();
   if (!token) {
-    alert("토큰을 입력해 주세요.");
+    alert("토큰을 입력하세요.");
     return;
   }
   localStorage.setItem(STORAGE_KEYS.token, token);
-  setSyncStatus("success", "토큰저장", "관리자 토큰을 이 브라우저에 저장했습니다.");
+  setSyncStatus("success", "토큰저장", "GitHub 토큰을 로컬 브라우저에 저장했습니다.");
   renderSyncStatus();
 }
 
 function clearToken() {
   localStorage.removeItem(STORAGE_KEYS.token);
   document.getElementById("github-token").value = "";
-  setSyncStatus("idle", "토큰삭제", "이 브라우저에서 관리자 토큰을 제거했습니다.");
+  setSyncStatus("idle", "토큰삭제", "GitHub 토큰을 삭제했습니다.");
   renderSyncStatus();
 }
 
-function saveAdminPassword() {
-  const password = document.getElementById("admin-password").value.trim();
-  if (!password || password.length < 4) {
-    alert("관리자 비밀번호는 4자리 이상 입력해 주세요.");
+async function saveAdminPassword() {
+  const raw = document.getElementById("admin-password").value;
+  if (!raw) {
+    alert("비밀번호를 입력하세요.");
     return;
   }
-  localStorage.setItem(STORAGE_KEYS.adminPw, btoa(unescape(encodeURIComponent(password))));
+  const hash = await digestText(raw);
+  localStorage.setItem(STORAGE_KEYS.adminPw, hash);
   document.getElementById("admin-password").value = "";
-  setSyncStatus("success", "보안저장", "관리자 화면 비밀번호를 저장했습니다.");
-  renderSyncStatus();
+  alert("관리자 비밀번호를 저장했습니다.");
+  renderAll();
 }
 
 function clearAdminPassword() {
   localStorage.removeItem(STORAGE_KEYS.adminPw);
   document.getElementById("admin-password").value = "";
-  setSyncStatus("idle", "보안해제", "관리자 화면 비밀번호를 제거했습니다.");
-  renderSyncStatus();
+  alert("관리자 비밀번호를 삭제했습니다.");
+  renderAll();
 }
 
-function downloadBackup() {
-  const blob = new Blob([`${JSON.stringify(state, null, 2)}\n`], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `guro_huga_backup_${formatDateKey(new Date())}.json`;
-  link.click();
-  URL.revokeObjectURL(url);
+function saveOpsMemo() {
+  state.settings.opsMemo = document.getElementById("ops-memo").value.trim();
+  touchState("운영 메모 저장");
+  renderDashboard();
 }
 
-function importBackupSnapshot(event) {
-  const file = event.target.files?.[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      const imported = JSON.parse(String(reader.result || "{}"));
-      state = imported;
-      normalizeState();
-      initializeSelections();
-      touchState("백업 복원");
-      renderAll();
-      alert("백업 복원을 완료했습니다.");
-    } catch (error) {
-      alert(`백업 파일 오류: ${error.message}`);
-    } finally {
-      event.target.value = "";
-    }
-  };
-  reader.readAsText(file, "utf-8");
-}
-
-function exportCategoryExcel() {
-  if (typeof XLSX === "undefined") {
-    alert("엑셀 라이브러리를 불러오지 못했습니다.");
-    return;
-  }
-  const category = document.getElementById("category-select").value;
-  const rows = categoryRows(category);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), category);
-  XLSX.writeFile(workbook, `guro_huga_${category}_${formatDateKey(new Date())}.xlsx`);
-}
-
-function importCategoryExcel(event) {
-  const file = event.target.files?.[0];
-  if (!file) return;
-  if (typeof XLSX === "undefined") {
-    alert("엑셀 라이브러리를 불러오지 못했습니다.");
-    event.target.value = "";
-    return;
-  }
-  const category = document.getElementById("category-select").value;
-  const reader = new FileReader();
-  reader.onload = (loadEvent) => {
-    try {
-      const workbook = XLSX.read(loadEvent.target.result, { type: "array" });
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
-      applyCategoryRows(category, rows);
-      normalizeState();
-      initializeSelections();
-      touchState(`카테고리 업로드: ${category}`);
-      renderAll();
-      alert(`${category} 카테고리 업로드를 반영했습니다.`);
-    } catch (error) {
-      alert(`카테고리 업로드 오류: ${error.message}`);
-    } finally {
-      event.target.value = "";
-    }
-  };
-  reader.readAsArrayBuffer(file);
-}
-
-function categoryRows(category) {
-  if (category === "employees") return state.employees;
-  if (category === "records") return state.records;
-  if (category === "subLeaves") return state.subLeaves;
-  if (category === "specialLeaves") return state.specialLeaves;
-  if (category === "hrRecords") {
-    return Object.entries(state.hrRecords).map(([key, value]) => ({ key, ...value }));
-  }
-  if (category === "perms") {
-    return Object.entries(state.perms).map(([empId, value]) => ({ empId, ...value }));
-  }
-  return [];
-}
-
-function applyCategoryRows(category, rows) {
-  if (category === "employees") state.employees = rows;
-  if (category === "records") state.records = rows;
-  if (category === "subLeaves") state.subLeaves = rows;
-  if (category === "specialLeaves") state.specialLeaves = rows;
-  if (category === "hrRecords") {
-    state.hrRecords = {};
-    rows.forEach((row) => {
-      const key = String(row.key || "").trim();
-      if (!key) return;
-      const next = { ...row };
-      delete next.key;
-      state.hrRecords[key] = next;
-    });
-  }
-  if (category === "perms") {
-    state.perms = {};
-    rows.forEach((row) => {
-      const empId = String(row.empId || "").trim();
-      if (!empId) return;
-      const next = { ...row };
-      delete next.empId;
-      state.perms[empId] = next;
-    });
-  }
-}
-
-function archiveSnapshot(message) {
+function archiveSnapshot(reason) {
   const archive = getArchiveSnapshots();
-  archive.unshift({
-    at: formatDateTime(new Date()),
-    message,
+  archive.push({
+    savedAt: formatDateTime(new Date()),
+    reason,
     state: JSON.parse(JSON.stringify(state))
   });
-  localStorage.setItem(STORAGE_KEYS.archive, JSON.stringify(archive.slice(0, 30)));
+  while (archive.length > 30) archive.shift();
+  localStorage.setItem(STORAGE_KEYS.archive, JSON.stringify(archive));
 }
 
 function getArchiveSnapshots() {
@@ -2780,438 +2149,379 @@ function getArchiveSnapshots() {
 }
 
 function downloadCurrentSnapshot() {
-  const blob = new Blob([`${JSON.stringify(state, null, 2)}\n`], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `guro_huga_snapshot_${formatDateKey(new Date())}.json`;
-  link.click();
-  URL.revokeObjectURL(url);
+  downloadJson(`guro_huga_snapshot_${Date.now()}.json`, state);
 }
 
 function restoreLastSnapshot() {
   const archive = getArchiveSnapshots();
-  if (!archive.length) {
+  const last = archive[archive.length - 1];
+  if (!last) {
     alert("복원할 스냅샷이 없습니다.");
     return;
   }
-  state = archive[0].state;
+  if (!confirm(`${last.savedAt} 스냅샷으로 복원할까요?`)) return;
+  state = JSON.parse(JSON.stringify(last.state));
   normalizeState();
   initializeSelections();
   touchState("최근 스냅샷 복원");
   renderAll();
 }
 
-function currentUser() {
-  return employeeById(ui.selectedEmployeeId) || state.employees[0] || null;
+function downloadBackup() {
+  downloadJson(`guro_huga_backup_${Date.now()}.json`, state);
 }
 
-function employeeById(empId) {
-  return state.employees.find((employee) => employee.id === empId);
-}
-
-function isCurrentAdmin() {
-  const current = currentUser();
-  if (!current) return false;
-  return (state.perms[current.id]?.grade || "normal") === "admin";
-}
-
-function getHrRecord(empId, year) {
-  const employee = employeeById(empId) || {};
-  const key = `${empId}_${year}`;
-  state.hrRecords[key] = Object.assign({
-    dept: employee.dept || "",
-    role: employee.role || "",
-    joinDate: employee.joinDate || "",
-    promotionMonth: "",
-    stepMonth: "",
-    careerYears: "",
-    certifications: "",
-    workType: "",
-    status: "재직",
-    monthlySalary: 0,
-    payGrade: "",
-    payLevel: "",
-    payStep: "",
-    taxMode: "hometax",
-    manualTaxRate: 0,
-    withholdingTax: 0,
-    socialInsurance: 0,
-    spouseCount: 0,
-    childCount: 0,
-    otherDependentCount: 0,
-    taxFamilyCount: 1,
-    taxChildCount: 0,
-    taxRatePercent: 100,
-    adjustmentAllowance: 0,
-    allowanceFlags: { meal: true, manager: true, family: true, adjustment: true, overtime: true },
-    overtimeHours: 0,
-    holidayOvertimeHours: 0,
-    totalAllowance: 0,
-    ordinaryWage: 0,
-    overtimeAllowance: 0,
-    severanceEstimate: 0,
-    mandatoryEduDone: false
-  }, state.hrRecords[key] || {});
-  return state.hrRecords[key];
-}
-
-function defaultEmploymentRules() {
-  return [
-    "1. 회계년도 기준 연차는 설정된 시작 월을 기준으로 계산합니다.",
-    "2. 입사일 기준 자동 계산값이 기본값이며, 연도별 일수는 수동으로 조정할 수 있습니다.",
-    "3. 대체휴가는 관리자가 부여하며 사용 차감은 개별 이력으로 관리합니다.",
-    "4. 퇴사 정산 계산은 내부 참고용이며 실제 급여 정산 전 인사/노무 검토가 필요합니다.",
-    "5. 퇴사자 발생 시 미사용 연차와 1일 정산 단가를 함께 확인합니다."
-  ].join("\n");
-}
-
-function defaultWelfareStandard() {
-  return {
-    name: "서울시 사회복지시설 인사·노무 기준 템플릿",
-    weeklyHours: 40,
-    retirementNote: "퇴직금은 근로기준법/근로자퇴직급여보장법 및 시설 운영지침 최신판을 기준으로 산정",
-    educationNote: "직장 내 성희롱 예방, 장애인 인식개선, 개인정보보호, 산업안전보건 등 법정의무교육 이수 관리 필요"
+function importBackupSnapshot(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (loadEvent) => {
+    try {
+      const parsed = JSON.parse(loadEvent.target.result);
+      state = parsed;
+      normalizeState();
+      initializeSelections();
+      touchState("백업 복원 적용");
+      renderAll();
+      alert("백업 복원을 적용했습니다.");
+    } catch (error) {
+      alert(`백업 복원 오류: ${error.message}`);
+    } finally {
+      event.target.value = "";
+    }
   };
+  reader.readAsText(file, "utf-8");
 }
 
-function defaultBirthdayRule() {
-  return {
-    base: "month_start",
-    days: 0.5,
-    minMonths: 3
-  };
+function downloadJson(filename, data) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
-function defaultAllowanceRules() {
-  return {
-    meal: 140000,
-    manager: 220000,
-    spouse: 40000,
-    child1: 50000,
-    child2: 80000,
-    child3Plus: 120000,
-    otherDependent: 20000,
-    defaultAdjustment: 0
-  };
+function openRecordModal() {
+  openModal("휴가 기록 추가", "직원과 날짜를 선택해 휴가를 등록합니다.", `
+    <label class="field-label" for="record-emp">직원</label>
+    <select id="record-emp" class="field">${state.employees.map((employee) => `<option value="${employee.id}" ${employee.id === ui.selectedEmployeeId ? "selected" : ""}>${employee.name}</option>`).join("")}</select>
+    <label class="field-label" for="record-date">날짜</label>
+    <input id="record-date" class="field" type="date" value="${formatDateKey(new Date())}">
+    <label class="field-label" for="record-type">구분</label>
+    <select id="record-type" class="field">
+      <option value="연차">연차</option>
+      <option value="반차">반차</option>
+      <option value="반반차">반반차</option>
+    </select>
+    <label class="field-label" for="record-memo">메모</label>
+    <input id="record-memo" class="field" type="text" placeholder="예: 개인사유">
+    <button id="record-save-btn" class="btn primary" type="button">저장</button>
+  `);
+  document.getElementById("record-save-btn").addEventListener("click", saveRecordFromModal);
 }
 
-function defaultSeoulPayGradeTable2026() {
-  const level2 = [3169000, 3239000, 3312000, 3390000, 3470000, 3563000, 3663000, 3763000, 3863000, 3963000, 4063000, 4163000, 4263000, 4363000, 4444000, 4524000, 4602000, 4672000, 4738000, 4802000, 4862000, 4923000, 4985000, 5046000, 5107000, 5170000, 5233000, 5296000, 5360000, 5424000, 5484000];
-  const level3 = [2703000, 2784000, 2872000, 2969000, 3068000, 3167000, 3266000, 3365000, 3475000, 3575000, 3675000, 3730000, 3785000, 3850000, 3915000, 4006000, 4073000, 4147000, 4212000, 4278000, 4339000, 4399000, 4454000, 4513000, 4568000, 4620000, 4681000, 4744000, 4807000, 4867000, 4917000];
-  const level4 = [2550000, 2577000, 2604000, 2631000, 2712000, 2812000, 2912000, 3004000, 3102000, 3202000, 3298000, 3359000, 3426000, 3494000, 3566000, 3637000, 3708000, 3776000, 3841000, 3902000, 3966000, 4020000, 4073000, 4122000, 4176000, 4223000, 4270000, 4317000, 4364000, 4411000, 4461000];
-  const level5 = [2518000, 2545000, 2572000, 2597000, 2618000, 2638000, 2659000, 2743000, 2842000, 2929000, 3008000, 3069000, 3148000, 3228000, 3281000, 3354000, 3401000, 3472000, 3530000, 3590000, 3644000, 3699000, 3748000, 3796000, 3843000, 3889000, 3935000, 3979000, 4023000, 4063000, 4113000];
-  const manager = [2492000, 2519000, 2546000, 2571000, 2593000, 2616000, 2643000, 2664000, 2761000, 2844000, 2941000, 2996000, 3053000, 3104000, 3162000, 3218000, 3265000, 3330000, 3388000, 3448000, 3527000, 3585000, 3639000, 3701000, 3740000, 3789000, 3839000, 3898000, 3960000, 4018000, 4078000];
-  const functional = [2466000, 2493000, 2520000, 2545000, 2567000, 2591000, 2618000, 2640000, 2661000, 2705000, 2780000, 2847000, 2893000, 2959000, 3010000, 3081000, 3157000, 3218000, 3272000, 3336000, 3410000, 3471000, 3530000, 3574000, 3629000, 3679000, 3729000, 3789000, 3849000, 3909000, 3969000];
-  const level1 = { 16: 4912000, 17: 4969000, 18: 5022000, 19: 5096000, 20: 5173000, 21: 5271000, 22: 5336000, 23: 5395000, 24: 5451000, 25: 5506000, 26: 5577000, 27: 5622000, 28: 5661000, 29: 5729000, 30: 5788000 };
-
-  const rows = [];
-  Object.entries(level1).forEach(([step, basePay]) => rows.push({ grade: "일반직", level: "1급", step: Number(step), basePay }));
-  level2.forEach((basePay, idx) => rows.push({ grade: "일반직", level: "2급", step: idx + 1, basePay }));
-  level3.forEach((basePay, idx) => rows.push({ grade: "일반직", level: "3급", step: idx + 1, basePay }));
-  level4.forEach((basePay, idx) => rows.push({ grade: "일반직", level: "4급", step: idx + 1, basePay }));
-  level5.forEach((basePay, idx) => rows.push({ grade: "일반직", level: "5급", step: idx + 1, basePay }));
-  manager.forEach((basePay, idx) => rows.push({ grade: "관리직", level: "관리직", step: idx + 1, basePay }));
-  functional.forEach((basePay, idx) => rows.push({ grade: "기능직", level: "기능직", step: idx + 1, basePay }));
-  return rows;
-}
-
-function recordsOnDate(empId, date) {
-  return state.records.filter((record) => record.empId === empId && record.date === date);
-}
-
-function latestRecord(empId, year) {
-  return state.records
-    .filter((record) => record.empId === empId && record.date.startsWith(String(year)))
-    .sort((left, right) => right.date.localeCompare(left.date))[0];
-}
-
-function accrual(joinDate, year, fiscalYearMonth = 1) {
-  if (!joinDate) return 15;
-  const join = new Date(joinDate);
-  const ref = new Date(year, Math.max(0, Number(fiscalYearMonth || 1) - 1), 1);
-  if (ref < join) return 0;
-  const years = Math.floor((ref - join) / (1000 * 60 * 60 * 24 * 365.25));
-  if (years < 1) {
-    return Math.min(Math.floor((ref - join) / (1000 * 60 * 60 * 24 * 30.44)), 11);
+function saveRecordFromModal() {
+  const empId = document.getElementById("record-emp").value;
+  const date = document.getElementById("record-date").value;
+  const type = document.getElementById("record-type").value;
+  const memo = document.getElementById("record-memo").value.trim();
+  if (!empId || !date) {
+    alert("직원과 날짜를 입력하세요.");
+    return;
   }
-  if (years <= 2) return 15;
-  return Math.min(15 + Math.floor((years - 1) / 2), 25);
+  state.records.push({ id: `r_${Date.now()}`, empId, date, type, memo });
+  touchState(`휴가 기록 추가 ${date}`);
+  closeModal();
+  renderAll();
 }
 
-function getTotal(empId, year) {
-  const key = `${empId}_${year}`;
-  if (state.totals[key] !== undefined) return Number(state.totals[key]);
+function openEmployeeModal(empId = "") {
+  const employee = employeeById(empId) || {
+    id: `e_${Date.now()}`,
+    name: "",
+    dept: "",
+    role: "",
+    joinDate: "",
+    color: COLORS[state.employees.length % COLORS.length],
+    photo: ""
+  };
+  openModal(empId ? "직원 정보 수정" : "직원 추가", "직원 기본 정보를 등록합니다.", `
+    <input id="employee-id" type="hidden" value="${employee.id}">
+    <label class="field-label" for="employee-name">이름</label>
+    <input id="employee-name" class="field" type="text" value="${employee.name}">
+    <label class="field-label" for="employee-dept">부서</label>
+    <input id="employee-dept" class="field" type="text" value="${employee.dept}">
+    <label class="field-label" for="employee-role">직책</label>
+    <input id="employee-role" class="field" type="text" value="${employee.role}">
+    <label class="field-label" for="employee-join">입사일</label>
+    <input id="employee-join" class="field" type="date" value="${employee.joinDate}">
+    <label class="field-label" for="employee-color">컬러</label>
+    <input id="employee-color" class="field" type="color" value="${employee.color}">
+    <label class="field-label" for="employee-photo">프로필 이미지 URL</label>
+    <input id="employee-photo" class="field" type="text" value="${employee.photo || ""}" placeholder="https://...">
+    <label class="field-label" for="employee-photo-file">또는 이미지 파일 선택</label>
+    <input id="employee-photo-file" class="field" type="file" accept="image/*">
+    <button id="employee-save-btn" class="btn primary" type="button">저장</button>
+  `);
+  document.getElementById("employee-save-btn").addEventListener("click", saveEmployeeFromModal);
+}
+
+function saveEmployeeFromModal() {
+  const empId = document.getElementById("employee-id").value;
+  const existing = employeeById(empId);
+  const payload = {
+    id: empId,
+    name: document.getElementById("employee-name").value.trim(),
+    dept: document.getElementById("employee-dept").value.trim(),
+    role: document.getElementById("employee-role").value.trim(),
+    joinDate: document.getElementById("employee-join").value,
+    color: document.getElementById("employee-color").value,
+    photo: document.getElementById("employee-photo").value.trim()
+  };
+  const file = document.getElementById("employee-photo-file").files?.[0];
+  if (!payload.name) {
+    alert("이름을 입력하세요.");
+    return;
+  }
+  const finish = (photoValue) => {
+    payload.photo = photoValue || payload.photo;
+    if (existing) {
+      Object.assign(existing, payload);
+      touchState(`직원 수정 ${payload.name}`);
+    } else {
+      state.employees.push(payload);
+      state.perms[payload.id] = state.perms[payload.id] || { grade: "normal", menus: {} };
+      touchState(`직원 추가 ${payload.name}`);
+    }
+    closeModal();
+    initializeSelections();
+    renderAll();
+  };
+
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = () => finish(reader.result);
+    reader.readAsDataURL(file);
+    return;
+  }
+  finish(payload.photo);
+}
+
+function deleteEmployee(empId) {
   const employee = employeeById(empId);
-  return accrual(employee?.joinDate, year, employee?.fiscalYearMonth);
+  if (!employee) return;
+  if (!confirm(`${employee.name} 직원을 삭제할까요? 관련 휴가 기록도 함께 삭제됩니다.`)) return;
+  state.employees = state.employees.filter((item) => item.id !== empId);
+  state.records = state.records.filter((item) => item.empId !== empId);
+  state.subLeaves = state.subLeaves.filter((item) => item.empId !== empId);
+  state.specialLeaves = state.specialLeaves.filter((item) => item.empId !== empId);
+  delete state.perms[empId];
+  Object.keys(state.totals).forEach((key) => {
+    if (key.startsWith(`${empId}_`)) delete state.totals[key];
+  });
+  Object.keys(state.hrRecords).forEach((key) => {
+    if (key.startsWith(`${empId}_`)) delete state.hrRecords[key];
+  });
+  touchState(`직원 삭제 ${employee.name}`);
+  initializeSelections();
+  renderAll();
 }
 
-function leaveDelta(type) {
-  if (type === "연차") return 1;
-  if (type.startsWith("반반차")) return 0.25;
-  return 0.5;
+function openSubLeaveModal() {
+  openModal("대체휴가 등록", "직원별 대체휴가 부여 또는 사용을 기록합니다.", `
+    <label class="field-label" for="sub-emp">직원</label>
+    <select id="sub-emp" class="field">${state.employees.map((employee) => `<option value="${employee.id}" ${employee.id === ui.subEmployeeId ? "selected" : ""}>${employee.name}</option>`).join("")}</select>
+    <label class="field-label" for="sub-type">구분</label>
+    <select id="sub-type" class="field"><option value="grant">부여</option><option value="use">사용</option></select>
+    <label class="field-label" for="sub-date">날짜</label>
+    <input id="sub-date" class="field" type="date" value="${formatDateKey(new Date())}">
+    <label class="field-label" for="sub-days">일수</label>
+    <input id="sub-days" class="field" type="number" min="0.5" step="0.5" value="1">
+    <label class="field-label" for="sub-memo">메모</label>
+    <input id="sub-memo" class="field" type="text">
+    <button id="sub-save-btn" class="btn primary" type="button">저장</button>
+  `);
+  document.getElementById("sub-save-btn").addEventListener("click", saveSubLeaveFromModal);
 }
 
-function calcRetirementPayout(empId, year) {
-  const employee = employeeById(empId);
-  if (!employee) {
-    return { remainingDays: 0, unitPrice: 0, amount: 0, formula: "-", note: "직원 정보가 없습니다." };
-  }
-
-  const joinDate = employee.joinDate ? new Date(employee.joinDate) : null;
-  const resignDate = employee.resignationDate ? new Date(employee.resignationDate) : null;
-  const refDate = resignDate || new Date(year, 11, 31);
-  const accruedDays = calculateAccruedLeaveUntilDate(joinDate, refDate);
-  const usedDays = sumUsedLeaveUntilDate(empId, refDate);
-  const remainingDays = Math.max(0, accruedDays - usedDays);
-
-  const monthlyBasePay = Number(employee.monthlyBasePay || 0);
-  const workHoursPerDay = Number(employee.workHoursPerDay || state.settings.defaultWorkHoursPerDay || 8);
-  const monthlyStandardHours = Number(state.settings.monthlyStandardHours || 209);
-  const ordinaryDaily = monthlyBasePay > 0 ? (monthlyBasePay / monthlyStandardHours) * workHoursPerDay : 0;
-  const averageDaily = Number(employee.averageDailyWage || 0);
-  const directUnitPrice = Number(employee.leaveUnitPrice || 0);
-
-  let unitPrice = 0;
-  let note = "통상임금 1일액/평균임금 1일액 중 유리한 금액 기준.";
-  if (directUnitPrice > 0) {
-    unitPrice = directUnitPrice;
-    note = "직접 입력 단가를 우선 적용했습니다.";
-  } else {
-    unitPrice = Math.max(ordinaryDaily, averageDaily);
-  }
-
-  return {
-    remainingDays,
-    unitPrice,
-    amount: Math.round(remainingDays * unitPrice),
-    formula: `미사용연차(${remainingDays.toFixed(2)}일) × 1일 단가(${Math.round(unitPrice).toLocaleString("ko-KR")}원)`,
-    note: `${note} · 발생 ${accruedDays.toFixed(2)}일 / 사용 ${usedDays.toFixed(2)}일`
+function saveSubLeaveFromModal() {
+  const payload = {
+    id: `sub_${Date.now()}`,
+    empId: document.getElementById("sub-emp").value,
+    type: document.getElementById("sub-type").value,
+    date: document.getElementById("sub-date").value,
+    days: Number(document.getElementById("sub-days").value || 0),
+    memo: document.getElementById("sub-memo").value.trim()
   };
+  if (!payload.empId || !payload.date || !payload.days) {
+    alert("필수값을 입력하세요.");
+    return;
+  }
+  state.subLeaves.push(payload);
+  touchState(`대체휴가 ${payload.type === "grant" ? "부여" : "사용"}`);
+  closeModal();
+  renderSubLeaves();
 }
 
-function calculateAccruedLeaveUntilDate(joinDate, targetDate) {
-  if (!joinDate || Number.isNaN(joinDate.getTime()) || !targetDate || Number.isNaN(targetDate.getTime())) return 0;
-  if (targetDate < joinDate) return 0;
-  let total = 0;
-  let cursor = new Date(joinDate);
-  const firstAnniversary = new Date(joinDate);
-  firstAnniversary.setFullYear(firstAnniversary.getFullYear() + 1);
-
-  while (cursor < targetDate) {
-    const nextMonth = new Date(cursor);
-    nextMonth.setMonth(nextMonth.getMonth() + 1);
-    if (nextMonth <= targetDate && nextMonth <= firstAnniversary) total += 1;
-    cursor = nextMonth;
-  }
-  total = Math.min(total, 11);
-
-  let yearlyCursor = new Date(firstAnniversary);
-  while (yearlyCursor <= targetDate) {
-    const yearsCompleted = yearlyCursor.getFullYear() - joinDate.getFullYear();
-    const annualBase = Math.min(15 + Math.floor(Math.max(0, yearsCompleted - 1) / 2), 25);
-    total += annualBase;
-    yearlyCursor.setFullYear(yearlyCursor.getFullYear() + 1);
-  }
-  return total;
+function openBulkSubLeaveModal() {
+  openModal("대체휴가 일괄 부여", "모든 직원에게 같은 대체휴가를 일괄 부여합니다.", `
+    <label class="field-label" for="bulk-sub-date">부여일</label>
+    <input id="bulk-sub-date" class="field" type="date" value="${formatDateKey(new Date())}">
+    <label class="field-label" for="bulk-sub-days">일수</label>
+    <input id="bulk-sub-days" class="field" type="number" min="0.5" step="0.5" value="1">
+    <label class="field-label" for="bulk-sub-memo">메모</label>
+    <input id="bulk-sub-memo" class="field" type="text" placeholder="예: 법정공휴일 근무 보상">
+    <div class="button-row">
+      <button id="bulk-select-all" class="btn ghost small" type="button">전체 선택</button>
+      <button id="bulk-clear-all" class="btn ghost small" type="button">전체 해제</button>
+    </div>
+    <div id="bulk-sub-list" class="stack-list compact">${state.employees.map((employee) => `
+      <label class="checkbox-row"><input type="checkbox" data-bulk-sub-emp="${employee.id}" checked><span>${employee.name}</span></label>
+    `).join("")}</div>
+    <button id="bulk-sub-save-btn" class="btn primary" type="button">일괄 저장</button>
+  `);
+  document.getElementById("bulk-select-all").addEventListener("click", () => {
+    document.querySelectorAll("[data-bulk-sub-emp]").forEach((checkbox) => { checkbox.checked = true; });
+  });
+  document.getElementById("bulk-clear-all").addEventListener("click", () => {
+    document.querySelectorAll("[data-bulk-sub-emp]").forEach((checkbox) => { checkbox.checked = false; });
+  });
+  document.getElementById("bulk-sub-save-btn").addEventListener("click", saveBulkSubLeaves);
 }
 
-function sumUsedLeaveUntilDate(empId, targetDate) {
-  const limit = formatDateKey(targetDate);
-  return state.records
-    .filter((record) => record.empId === empId && record.date <= limit)
-    .reduce((sum, record) => sum + Math.max(0, leaveDelta(record.type)), 0);
+function saveBulkSubLeaves() {
+  const date = document.getElementById("bulk-sub-date").value;
+  const days = Number(document.getElementById("bulk-sub-days").value || 0);
+  const memo = document.getElementById("bulk-sub-memo").value.trim();
+  const targetIds = Array.from(document.querySelectorAll("[data-bulk-sub-emp]:checked")).map((checkbox) => checkbox.dataset.bulkSubEmp);
+  if (!date || !days || !targetIds.length) {
+    alert("부여일, 일수, 대상을 확인하세요.");
+    return;
+  }
+  targetIds.forEach((empId, index) => {
+    state.subLeaves.push({ id: `sub_bulk_${Date.now()}_${index}`, empId, type: "grant", date, days, memo });
+  });
+  touchState(`대체휴가 일괄 부여 ${targetIds.length}명`);
+  closeModal();
+  renderSubLeaves();
+}
+
+function deleteSubLeave(id) {
+  if (!confirm("이 대체휴가 기록을 삭제할까요?")) return;
+  state.subLeaves = state.subLeaves.filter((item) => item.id !== id);
+  touchState("대체휴가 기록 삭제");
+  renderSubLeaves();
+}
+
+function openSpecialLeaveModal() {
+  openModal("특별휴가 등록", "경조사/병가/포상휴가 등을 등록합니다.", `
+    <label class="field-label" for="special-emp">직원</label>
+    <select id="special-emp" class="field">${state.employees.map((employee) => `<option value="${employee.id}" ${employee.id === ui.specialEmployeeId ? "selected" : ""}>${employee.name}</option>`).join("")}</select>
+    <label class="field-label" for="special-action">구분</label>
+    <select id="special-action" class="field"><option value="grant">부여</option><option value="use">사용</option></select>
+    <label class="field-label" for="special-reason">유형</label>
+    <select id="special-reason" class="field">
+      <option value="경조사">경조사</option>
+      <option value="병가">병가</option>
+      <option value="포상휴가">포상휴가</option>
+      <option value="생일반차">생일반차</option>
+      <option value="기타휴가">기타휴가</option>
+    </select>
+    <label class="field-label" for="special-date">날짜</label>
+    <input id="special-date" class="field" type="date" value="${formatDateKey(new Date())}">
+    <label class="field-label" for="special-days">일수</label>
+    <input id="special-days" class="field" type="number" min="0.5" step="0.5" value="1">
+    <label class="field-label" for="special-evidence">증빙</label>
+    <input id="special-evidence" class="field" type="text" placeholder="예: 경조휴가 신청서">
+    <label class="field-label" for="special-memo">메모</label>
+    <input id="special-memo" class="field" type="text">
+    <button id="special-save-btn" class="btn primary" type="button">저장</button>
+  `);
+  document.getElementById("special-save-btn").addEventListener("click", saveSpecialLeaveFromModal);
+}
+
+function saveSpecialLeaveFromModal() {
+  const payload = {
+    id: `special_${Date.now()}`,
+    empId: document.getElementById("special-emp").value,
+    action: document.getElementById("special-action").value,
+    reason: document.getElementById("special-reason").value,
+    date: document.getElementById("special-date").value,
+    days: Number(document.getElementById("special-days").value || 0),
+    evidence: document.getElementById("special-evidence").value.trim(),
+    memo: document.getElementById("special-memo").value.trim()
+  };
+  if (!payload.empId || !payload.date || !payload.days) {
+    alert("필수값을 입력하세요.");
+    return;
+  }
+  state.specialLeaves.push(payload);
+  touchState(`특별휴가 ${payload.reason} ${payload.action === "grant" ? "부여" : "사용"}`);
+  closeModal();
+  renderSpecialLeaves();
+}
+
+function deleteSpecialLeave(id) {
+  if (!confirm("이 특별휴가 기록을 삭제할까요?")) return;
+  state.specialLeaves = state.specialLeaves.filter((item) => item.id !== id);
+  touchState("특별휴가 기록 삭제");
+  renderSpecialLeaves();
 }
 
 function saveSettingsFromView() {
   const employee = employeeById(ui.settingsEmployeeId);
   if (!employee) return;
-
-  const joinDate = document.getElementById("join-date").value;
-  const fiscalYearMonth = Number(document.getElementById("fiscal-year-month").value || 1);
-  const resignationDate = document.getElementById("resignation-date").value;
-  const monthlyBasePay = Number(document.getElementById("monthly-base-pay").value || 0);
-  const workHoursPerDay = Number(document.getElementById("work-hours-per-day").value || state.settings.defaultWorkHoursPerDay || 8);
-  const monthlyStandardHours = Number(document.getElementById("monthly-standard-hours").value || 209);
-  const leaveUnitPrice = Number(document.getElementById("leave-unit-price").value || 0);
-  const averageDailyWage = Number(document.getElementById("average-daily-wage").value || 0);
-  const employmentRules = document.getElementById("employment-rules").value.trim() || defaultEmploymentRules();
-
-  employee.joinDate = joinDate;
-  employee.fiscalYearMonth = fiscalYearMonth;
-  employee.resignationDate = resignationDate;
-  employee.monthlyBasePay = monthlyBasePay;
-  employee.workHoursPerDay = workHoursPerDay;
-  employee.leaveUnitPrice = leaveUnitPrice;
-  employee.averageDailyWage = averageDailyWage;
-  state.settings.monthlyStandardHours = monthlyStandardHours;
-  state.settings.employmentRules = employmentRules;
-
-  document.querySelectorAll("[data-total-emp]").forEach((input) => {
-    const empId = input.dataset.totalEmp;
-    const year = input.dataset.totalYear;
-    state.totals[`${empId}_${year}`] = Number(input.value || 0);
+  employee.joinDate = document.getElementById("join-date").value;
+  employee.fiscalYearMonth = Number(document.getElementById("fiscal-year-month").value || 1);
+  employee.resignationDate = document.getElementById("resignation-date").value;
+  employee.monthlyBasePay = Number(document.getElementById("monthly-base-pay").value || 0);
+  employee.workHoursPerDay = Number(document.getElementById("work-hours-per-day").value || state.settings.defaultWorkHoursPerDay || 8);
+  employee.leaveUnitPrice = Number(document.getElementById("leave-unit-price").value || 0);
+  employee.averageDailyWage = Number(document.getElementById("average-daily-wage").value || 0);
+  state.settings.monthlyStandardHours = Number(document.getElementById("monthly-standard-hours").value || 209);
+  state.settings.employmentRules = document.getElementById("employment-rules").value.trim();
+  document.querySelectorAll("[data-total-year]").forEach((input) => {
+    state.totals[`${input.dataset.totalEmp}_${input.dataset.totalYear}`] = Number(input.value || 0);
   });
-
   touchState("연차 설정 저장");
-  renderAll();
+  renderSettings();
 }
 
-function exportExcelSnapshot() {
-  if (typeof XLSX === "undefined") {
-    alert("엑셀 라이브러리를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
-    return;
-  }
-
-  const year = ui.managerYear;
-  const admin = isCurrentAdmin();
-  const summaryRows = state.employees.map((employee) => {
-    const summary = employeeSummary(employee.id, year);
-    return {
-      기준연도: year,
-      직원ID: employee.id,
-      이름: employee.name,
-      부서: employee.dept || "",
-      직책: employee.role || "",
-      프로필이미지: employee.photo || "",
-      생년월일: admin ? (employee.birthDate || "") : "",
-      개인정보메모: admin ? (employee.personalInfo || "") : "",
-      입사일: employee.joinDate || "",
-      회계년도시작월: employee.fiscalYearMonth || 1,
-      퇴사일: employee.resignationDate || "",
-      생성연차: summary.total,
-      사용연차: summary.used,
-      잔여연차: summary.remain,
-      사용률: `${summary.usagePercent}%`,
-      월통상임금: employee.monthlyBasePay || 0,
-      일근로시간: employee.workHoursPerDay || 0,
-      일정산단가: employee.leaveUnitPrice || 0,
-      일평균임금: employee.averageDailyWage || 0
-    };
-  });
-
-  const employeeRows = state.employees.map((employee) => ({
-    직원ID: employee.id,
-    이름: employee.name,
-    부서: employee.dept || "",
-    직책: employee.role || "",
-    프로필이미지: employee.photo || "",
-    생년월일: admin ? (employee.birthDate || "") : "",
-    개인정보메모: admin ? (employee.personalInfo || "") : "",
-    입사일: employee.joinDate || "",
-    회계년도시작월: employee.fiscalYearMonth || 1,
-    퇴사일: employee.resignationDate || "",
-    월통상임금: employee.monthlyBasePay || 0,
-    일근로시간: employee.workHoursPerDay || 0,
-    일정산단가: employee.leaveUnitPrice || 0,
-    일평균임금: employee.averageDailyWage || 0
-  }));
-
-  const subLeaveRows = state.subLeaves.map((item) => ({
-    직원ID: item.empId,
-    이름: employeeById(item.empId)?.name || "",
-    유형: item.type,
-    일수: item.days,
-    날짜: item.date,
-    메모: item.memo || ""
-  }));
-  const specialLeaveRows = state.specialLeaves.map((item) => ({
-    직원ID: item.empId,
-    이름: employeeById(item.empId)?.name || "",
-    처리: item.action,
-    사유: item.reason,
-    일수: item.days,
-    날짜: item.date,
-    증빙: item.evidence || "",
-    메모: item.memo || ""
-  }));
-
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(summaryRows), "연차현황");
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(employeeRows), "직원기본정보");
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(subLeaveRows), "대체휴가");
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(specialLeaveRows), "특별휴가");
-
-  const fileName = `guro_huga_summary_${year}.xlsx`;
-  XLSX.writeFile(workbook, fileName);
-}
-
-function importExcelSnapshot(event) {
-  const file = event.target.files?.[0];
-  if (!file) return;
-  if (typeof XLSX === "undefined") {
-    alert("엑셀 라이브러리를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
-    event.target.value = "";
-    return;
-  }
-
-  const reader = new FileReader();
-  reader.onload = (loadEvent) => {
-    try {
-      const workbook = XLSX.read(loadEvent.target.result, { type: "array" });
-      const infoSheet = workbook.Sheets["직원기본정보"];
-      const summarySheet = workbook.Sheets["연차현황"];
-      const specialSheet = workbook.Sheets["특별휴가"];
-
-      if (!infoSheet) {
-        throw new Error("'직원기본정보' 시트를 찾을 수 없습니다.");
-      }
-
-      const employeeRows = XLSX.utils.sheet_to_json(infoSheet, { defval: "" });
-      const summaryRows = summarySheet ? XLSX.utils.sheet_to_json(summarySheet, { defval: "" }) : [];
-
-      mergeEmployeesFromExcel(employeeRows);
-      mergeTotalsFromExcel(summaryRows);
-      mergeSpecialLeavesFromExcel(specialSheet ? XLSX.utils.sheet_to_json(specialSheet, { defval: "" }) : []);
-      normalizeState();
-      initializeSelections();
-      touchState("엑셀 업로드 반영");
-      renderAll();
-      alert("엑셀 업로드 내용을 반영했습니다.");
-    } catch (error) {
-      alert(`엑셀 업로드 중 오류가 발생했습니다: ${error.message}`);
-    } finally {
-      event.target.value = "";
-    }
-  };
-  reader.readAsArrayBuffer(file);
+function addSettingYear() {
+  const year = prompt("추가할 연도를 입력하세요 (예: 2027)");
+  if (!year) return;
+  const numericYear = Number(year);
+  if (!numericYear) return;
+  state.totals[`${ui.settingsEmployeeId}_${numericYear}`] = state.totals[`${ui.settingsEmployeeId}_${numericYear}`] || 0;
+  renderSettings();
 }
 
 function saveHrInfoFromView() {
-  const year = ui.hrYear;
   const admin = isCurrentAdmin();
   state.employees.forEach((employee) => {
-    const record = getHrRecord(employee.id, year);
-    const dept = document.querySelector(`[data-hr-dept="${employee.id}"]`)?.value.trim() || "";
-    const role = document.querySelector(`[data-hr-role="${employee.id}"]`)?.value.trim() || "";
-    const joinDate = document.querySelector(`[data-hr-join="${employee.id}"]`)?.value || "";
-    const stepMonth = document.querySelector(`[data-hr-step="${employee.id}"]`)?.value || "";
-    const promotionMonth = document.querySelector(`[data-hr-promotion="${employee.id}"]`)?.value || "";
-    const careerYears = Number(document.querySelector(`[data-hr-career="${employee.id}"]`)?.value || 0);
-    const certifications = document.querySelector(`[data-hr-cert="${employee.id}"]`)?.value.trim() || "";
-    const workType = document.querySelector(`[data-hr-work="${employee.id}"]`)?.value.trim() || "";
-    const status = document.querySelector(`[data-hr-status="${employee.id}"]`)?.value.trim() || "";
-    record.dept = dept;
-    record.role = role;
-    record.joinDate = joinDate;
-    record.stepMonth = stepMonth;
-    record.promotionMonth = promotionMonth;
-    record.careerYears = careerYears;
-    record.certifications = certifications;
-    record.workType = workType;
-    record.status = status;
-    state.hrRecords[`${employee.id}_${year}`] = record;
-    employee.dept = dept || employee.dept;
-    employee.role = role || employee.role;
-    employee.joinDate = joinDate || employee.joinDate;
-
+    const record = getHrRecord(employee.id, ui.hrYear);
+    record.dept = document.querySelector(`[data-hr-dept="${employee.id}"]`)?.value.trim() || "";
+    record.role = document.querySelector(`[data-hr-role="${employee.id}"]`)?.value.trim() || "";
+    record.joinDate = document.querySelector(`[data-hr-join="${employee.id}"]`)?.value || "";
+    record.stepMonth = document.querySelector(`[data-hr-step="${employee.id}"]`)?.value || "";
+    record.promotionMonth = document.querySelector(`[data-hr-promotion="${employee.id}"]`)?.value || "";
+    record.careerYears = Number(document.querySelector(`[data-hr-career="${employee.id}"]`)?.value || 0);
+    record.certifications = document.querySelector(`[data-hr-cert="${employee.id}"]`)?.value.trim() || "";
+    record.workType = document.querySelector(`[data-hr-work="${employee.id}"]`)?.value.trim() || "";
+    record.status = document.querySelector(`[data-hr-status="${employee.id}"]`)?.value.trim() || "재직";
+    employee.dept = record.dept || employee.dept;
+    employee.role = record.role || employee.role;
+    employee.joinDate = record.joinDate || employee.joinDate;
     if (admin) {
-      employee.birthDate = document.querySelector(`[data-hr-birth="${employee.id}"]`)?.value || "";
+      employee.birthDate = document.querySelector(`[data-hr-birth="${employee.id}"]`)?.value || employee.birthDate || "";
       employee.personalInfo = document.querySelector(`[data-hr-personal="${employee.id}"]`)?.value.trim() || "";
     }
+    state.hrRecords[`${employee.id}_${ui.hrYear}`] = record;
   });
-  touchState(admin ? "년도별 인사정보 저장" : "년도별 인사정보 저장(관리자 민감정보 제외)");
-  renderAll();
+  touchState(admin ? "인사정보 저장" : "인사정보 저장(관리자 민감정보 제외)");
+  renderHrView();
 }
 
 function savePayrollInfoFromView() {
@@ -3272,20 +2582,17 @@ function renderPayGradeTable() {
 }
 
 function addPayGradeRow() {
-  state.settings.payGradeTable = state.settings.payGradeTable || [];
   state.settings.payGradeTable.push({ grade: "", level: "", step: 1, basePay: 0 });
   renderPayGradeTable();
 }
 
 function savePayGradeTable() {
-  const size = (state.settings.payGradeTable || []).length;
-  state.settings.payGradeTable = Array.from({ length: size }, (_item, index) => ({
+  state.settings.payGradeTable = Array.from(document.querySelectorAll("#pay-grade-body tr")).map((row, index) => ({
     grade: document.querySelector(`[data-grade-name="${index}"]`)?.value.trim() || "",
     level: document.querySelector(`[data-grade-level="${index}"]`)?.value.trim() || "",
-    step: Number(document.querySelector(`[data-grade-step="${index}"]`)?.value || 1),
+    step: Number(document.querySelector(`[data-grade-step="${index}"]`)?.value || 0),
     basePay: Number(document.querySelector(`[data-grade-pay="${index}"]`)?.value || 0)
-  })).filter((item) => item.grade || item.level || item.basePay > 0);
-
+  })).filter((item) => item.step > 0 && item.basePay > 0 && (item.grade || item.level));
   state.settings.hometaxRate = Number(document.getElementById("hometax-rate").value || 0);
   state.settings.localTaxRate = Number(document.getElementById("local-tax-rate").value || 10);
   state.settings.allowanceRules = {
@@ -3298,8 +2605,393 @@ function savePayGradeTable() {
     otherDependent: Number(document.getElementById("allow-other").value || 0),
     defaultAdjustment: Number(document.getElementById("allow-adjustment").value || 0)
   };
-  touchState("직급/호봉 임금 테이블 저장");
+  touchState("임금 테이블/제수당 저장");
   renderHrView();
+}
+
+function defaultSeoulPayGradeTable2026() {
+  return [
+    { grade: "일반직", level: "1급", step: 1, basePay: 4200000 },
+    { grade: "일반직", level: "2급", step: 1, basePay: 3650000 },
+    { grade: "일반직", level: "3급", step: 1, basePay: 3200000 },
+    { grade: "일반직", level: "4급", step: 1, basePay: 2850000 },
+    { grade: "일반직", level: "5급", step: 1, basePay: 2550000 },
+    { grade: "관리직", level: "3급", step: 1, basePay: 3400000 },
+    { grade: "기능직", level: "1급", step: 1, basePay: 2600000 }
+  ];
+}
+
+function defaultAllowanceRules() {
+  return {
+    meal: 140000,
+    manager: 220000,
+    spouse: 40000,
+    child1: 50000,
+    child2: 80000,
+    child3Plus: 120000,
+    otherDependent: 20000,
+    defaultAdjustment: 0
+  };
+}
+
+function defaultBirthdayRule() {
+  return {
+    base: "재직자 중 생일이 속한 달에 반차 0.5일 자동 부여",
+    days: 0.5,
+    minMonths: 1
+  };
+}
+
+function saveBirthdayRule() {
+  state.settings.birthdayRule = {
+    base: document.getElementById("birthday-grant-rule").value.trim() || defaultBirthdayRule().base,
+    days: Number(document.getElementById("birthday-grant-days").value || 0.5),
+    minMonths: Number(document.getElementById("birthday-min-months").value || 1)
+  };
+  touchState("생일반차 규칙 저장");
+  renderHrView();
+}
+
+function runBirthdayHalfDayGrant() {
+  const rule = state.settings.birthdayRule || defaultBirthdayRule();
+  let granted = 0;
+  state.employees.forEach((employee, index) => {
+    if (!employee.birthDate) return;
+    const join = employee.joinDate ? new Date(employee.joinDate) : null;
+    if (join) {
+      const serviceMonths = (ui.hrYear - join.getFullYear()) * 12 + (new Date().getMonth() - join.getMonth());
+      if (serviceMonths < Number(rule.minMonths || 0)) return;
+    }
+    const birthday = new Date(employee.birthDate);
+    const month = birthday.getMonth() + 1;
+    const date = `${ui.hrYear}-${pad(month)}-01`;
+    if (state.specialLeaves.some((item) => item.empId === employee.id && item.reason === "생일반차" && item.date.startsWith(`${ui.hrYear}-${pad(month)}`))) return;
+    state.specialLeaves.push({
+      id: `birthday_${ui.hrYear}_${employee.id}_${index}`,
+      empId: employee.id,
+      action: "grant",
+      reason: "생일반차",
+      days: Number(rule.days || 0.5),
+      date,
+      evidence: "생일반차 자동부여",
+      memo: rule.base
+    });
+    granted += 1;
+  });
+  touchState(`생일반차 자동부여 ${granted}명`);
+  renderHrView();
+  renderSpecialLeaves();
+  alert(`생일반차 자동부여 완료: ${granted}명`);
+}
+
+async function loadLaborRule() {
+  const year = Number(document.getElementById("labor-rule-year").value || state.settings.activeLaborRuleYear || 2026);
+  try {
+    const response = await fetch(`./rules/labor/${year}.json?ts=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) throw new Error(`룰 파일 로딩 실패 (${response.status})`);
+    const payload = await response.json();
+    state.settings.laborRuleCache = state.settings.laborRuleCache || {};
+    state.settings.laborRuleCache[year] = payload;
+    state.settings.laborRuleLog = `${year}년 룰 로드 완료\n${payload.summary || "요약 없음"}`;
+    renderHrView();
+  } catch (error) {
+    state.settings.laborRuleLog = `로드 실패: ${error.message}`;
+    renderHrView();
+  }
+}
+
+function activateLaborRuleYear() {
+  const year = Number(document.getElementById("labor-rule-year").value || 2026);
+  state.settings.activeLaborRuleYear = year;
+  touchState(`법령 룰 연도 활성화 ${year}`);
+  renderHrView();
+}
+
+function defaultWelfareStandard() {
+  return {
+    name: "서울시 사회복지시설 인사·노무 기준 템플릿",
+    weeklyHours: 40,
+    retirementNote: "퇴직금은 근로기준법/근로자퇴직급여보장법 및 시설 운영지침 최신판을 기준으로 산정",
+    educationNote: "직장 내 성희롱 예방, 장애인 인식개선, 개인정보보호, 산업안전보건 등 법정의무교육 이수 관리 필요"
+  };
+}
+
+function isCurrentAdmin() {
+  const current = currentUser();
+  if (!current) return false;
+  return (state.perms[current.id]?.grade || "normal") === "admin";
+}
+
+function getHrRecord(empId, year) {
+  const employee = employeeById(empId) || {};
+  const key = `${empId}_${year}`;
+  state.hrRecords[key] = Object.assign({
+    dept: employee.dept || "",
+    role: employee.role || "",
+    joinDate: employee.joinDate || "",
+    promotionMonth: "",
+    stepMonth: "",
+    careerYears: "",
+    certifications: "",
+    workType: "",
+    status: "재직",
+    monthlySalary: 0,
+    payGrade: "",
+    payLevel: "",
+    payStep: "",
+    taxMode: "hometax",
+    manualTaxRate: 0,
+    withholdingTax: 0,
+    socialInsurance: 0,
+    spouseCount: 0,
+    childCount: 0,
+    otherDependentCount: 0,
+    taxFamilyCount: 1,
+    taxChildCount: 0,
+    taxRatePercent: 100,
+    adjustmentAllowance: 0,
+    allowanceFlags: { meal: true, manager: true, family: true, adjustment: true, overtime: true },
+    overtimeHours: 0,
+    holidayOvertimeHours: 0,
+    totalAllowance: 0,
+    ordinaryWage: 0,
+    overtimeAllowance: 0,
+    severanceEstimate: 0,
+    mandatoryEduDone: false
+  }, state.hrRecords[key] || {});
+  return state.hrRecords[key];
+}
+
+function defaultEmploymentRules() {
+  return [
+    "1. 회계년도 기준 연차는 설정된 시작 월을 기준으로 계산합니다.",
+    "2. 입사일 기준 자동 계산값이 기본값이며, 연도별 일수는 수동으로 조정할 수 있습니다.",
+    "3. 대체휴가는 관리자가 부여하며 사용 차감은 개별 이력으로 관리합니다.",
+    "4. 퇴사 정산 계산은 내부 참고용이며 실제 급여 정산 전 인사/노무 검토가 필요합니다.",
+    "5. 퇴사자 발생 시 미사용 연차와 1일 정산 단가를 함께 확인합니다."
+  ].join("\n");
+}
+
+async function digestText(text) {
+  const buffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buffer)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function confirmAdminAccess() {
+  const savedHash = localStorage.getItem(STORAGE_KEYS.adminPw);
+  if (!savedHash) return true;
+  return false;
+}
+
+function openModal(title, subtitle, bodyHtml) {
+  document.getElementById("modal-title").textContent = title;
+  document.getElementById("modal-subtitle").textContent = subtitle;
+  document.getElementById("modal-body").innerHTML = bodyHtml;
+  document.getElementById("modal-overlay").classList.remove("hidden");
+}
+
+function closeModal() {
+  document.getElementById("modal-overlay").classList.add("hidden");
+  document.getElementById("modal-body").innerHTML = "";
+}
+
+function exportExcelSnapshot() {
+  if (typeof XLSX === "undefined") {
+    alert("엑셀 라이브러리를 불러오지 못했습니다.");
+    return;
+  }
+  const workbook = XLSX.utils.book_new();
+  const employeeRows = state.employees.map((employee) => ({
+    직원ID: employee.id,
+    이름: employee.name,
+    부서: employee.dept,
+    직책: employee.role,
+    입사일: employee.joinDate,
+    회계년도시작월: employee.fiscalYearMonth,
+    퇴사일: employee.resignationDate,
+    월통상임금: employee.monthlyBasePay,
+    일근로시간: employee.workHoursPerDay,
+    일정산단가: employee.leaveUnitPrice,
+    일평균임금: employee.averageDailyWage,
+    프로필이미지: employee.photo || ""
+  }));
+  const recordRows = state.records.map((record) => ({
+    ID: record.id,
+    직원ID: record.empId,
+    날짜: record.date,
+    구분: record.type,
+    메모: record.memo
+  }));
+  const subRows = state.subLeaves.map((item) => ({
+    ID: item.id,
+    직원ID: item.empId,
+    처리: item.type,
+    날짜: item.date,
+    일수: item.days,
+    메모: item.memo
+  }));
+  const specialRows = state.specialLeaves.map((item) => ({
+    ID: item.id,
+    직원ID: item.empId,
+    처리: item.action,
+    사유: item.reason,
+    날짜: item.date,
+    일수: item.days,
+    증빙: item.evidence,
+    메모: item.memo
+  }));
+  const totalRows = Object.entries(state.totals).map(([key, total]) => {
+    const [empId, year] = key.split("_");
+    return { 직원ID: empId, 기준연도: Number(year), 생성연차: Number(total) };
+  });
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(employeeRows), "직원목록");
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(recordRows), "사용내역");
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(subRows), "대체휴가");
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(specialRows), "특별휴가");
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(totalRows), "연차합계");
+  XLSX.writeFile(workbook, `guro_huga_export_${Date.now()}.xlsx`);
+}
+
+function importExcelSnapshot(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (typeof XLSX === "undefined") {
+    alert("엑셀 라이브러리를 불러오지 못했습니다.");
+    event.target.value = "";
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (loadEvent) => {
+    try {
+      const workbook = XLSX.read(loadEvent.target.result, { type: "array" });
+      const employeeRows = XLSX.utils.sheet_to_json(workbook.Sheets["직원목록"] || {}, { defval: "" });
+      const recordRows = XLSX.utils.sheet_to_json(workbook.Sheets["사용내역"] || {}, { defval: "" });
+      const subRows = XLSX.utils.sheet_to_json(workbook.Sheets["대체휴가"] || {}, { defval: "" });
+      const specialRows = XLSX.utils.sheet_to_json(workbook.Sheets["특별휴가"] || {}, { defval: "" });
+      const totalRows = XLSX.utils.sheet_to_json(workbook.Sheets["연차합계"] || {}, { defval: "" });
+
+      state.employees = [];
+      state.records = [];
+      state.subLeaves = [];
+      state.specialLeaves = [];
+      state.totals = {};
+      mergeEmployeesFromExcel(employeeRows);
+      mergeTotalsFromExcel(totalRows);
+      state.records = recordRows.map((row, index) => ({
+        id: String(row["ID"] || `record_${index}`),
+        empId: String(row["직원ID"] || "").trim(),
+        date: normalizeDateCell(row["날짜"]),
+        type: String(row["구분"] || "연차").trim() || "연차",
+        memo: String(row["메모"] || "").trim()
+      })).filter((row) => row.empId && row.date);
+      state.subLeaves = subRows.map((row, index) => ({
+        id: String(row["ID"] || `sub_${index}`),
+        empId: String(row["직원ID"] || "").trim(),
+        type: String(row["처리"] || "grant").trim() || "grant",
+        date: normalizeDateCell(row["날짜"]),
+        days: Number(row["일수"] || 0),
+        memo: String(row["메모"] || "").trim()
+      })).filter((row) => row.empId && row.date && row.days);
+      mergeSpecialLeavesFromExcel(specialRows);
+      initializeSelections();
+      touchState("엑셀 일괄 업로드 반영");
+      renderAll();
+      alert("엑셀 데이터를 반영했습니다.");
+    } catch (error) {
+      alert(`엑셀 업로드 오류: ${error.message}`);
+    } finally {
+      event.target.value = "";
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function exportCategoryExcel() {
+  if (typeof XLSX === "undefined") {
+    alert("엑셀 라이브러리를 불러오지 못했습니다.");
+    return;
+  }
+  const category = document.getElementById("category-select").value;
+  const workbook = XLSX.utils.book_new();
+  if (category === "employees") {
+    const rows = state.employees.map((employee) => ({
+      직원ID: employee.id,
+      이름: employee.name,
+      부서: employee.dept,
+      직책: employee.role,
+      입사일: employee.joinDate,
+      회계년도시작월: employee.fiscalYearMonth,
+      퇴사일: employee.resignationDate
+    }));
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), "직원목록");
+  } else if (category === "records") {
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(state.records), "사용내역");
+  } else if (category === "subLeaves") {
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(state.subLeaves), "대체휴가");
+  } else if (category === "specialLeaves") {
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(state.specialLeaves), "특별휴가");
+  } else if (category === "hrRecords") {
+    const rows = Object.entries(state.hrRecords).map(([key, value]) => ({ key, ...value }));
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), "인사기록");
+  } else if (category === "perms") {
+    const rows = Object.entries(state.perms).map(([empId, value]) => ({ empId, grade: value.grade, menus: JSON.stringify(value.menus || {}) }));
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), "권한");
+  }
+  XLSX.writeFile(workbook, `guro_huga_${category}_${Date.now()}.xlsx`);
+}
+
+function importCategoryExcel(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (typeof XLSX === "undefined") {
+    alert("엑셀 라이브러리를 불러오지 못했습니다.");
+    event.target.value = "";
+    return;
+  }
+  const category = document.getElementById("category-select").value;
+  const reader = new FileReader();
+  reader.onload = (loadEvent) => {
+    try {
+      const workbook = XLSX.read(loadEvent.target.result, { type: "array" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+      if (category === "employees") {
+        state.employees = [];
+        mergeEmployeesFromExcel(rows);
+      } else if (category === "records") {
+        state.records = rows;
+      } else if (category === "subLeaves") {
+        state.subLeaves = rows;
+      } else if (category === "specialLeaves") {
+        state.specialLeaves = [];
+        mergeSpecialLeavesFromExcel(rows);
+      } else if (category === "hrRecords") {
+        state.hrRecords = {};
+        rows.forEach((row) => {
+          if (!row.key) return;
+          const { key, ...rest } = row;
+          state.hrRecords[key] = rest;
+        });
+      } else if (category === "perms") {
+        state.perms = {};
+        rows.forEach((row) => {
+          state.perms[row.empId] = {
+            grade: row.grade || "normal",
+            menus: row.menus ? JSON.parse(row.menus) : {}
+          };
+        });
+      }
+      initializeSelections();
+      touchState(`카테고리 엑셀 업로드 ${category}`);
+      renderAll();
+      alert("카테고리 데이터를 반영했습니다.");
+    } catch (error) {
+      alert(`카테고리 엑셀 업로드 오류: ${error.message}`);
+    } finally {
+      event.target.value = "";
+    }
+  };
+  reader.readAsArrayBuffer(file);
 }
 
 function calculatePayByGrade(grade, level, step) {
@@ -3324,12 +3016,59 @@ function calculateWithholdingTax(basePay, familyCount = 1, childCount = 0, rateP
 function lookupSimpleTax(basePay, familyCount, childCount) {
   const table = state.settings.simpleTaxTable || [];
   if (!table.length) return null;
+  const meta = normalizeSimpleTaxMeta(state.settings.simpleTaxMeta);
+  if (meta.source === "nts-official-2026-monthly") {
+    return lookupNationalSimpleTax(basePay, familyCount, childCount, table, meta);
+  }
   const matched = table.find((row) => basePay >= row.salaryMin && basePay <= row.salaryMax
     && Number(row.familyCount) === Number(familyCount)
     && Number(row.childCount || 0) === Number(childCount));
   if (matched) return Number(matched.tax || 0);
   const fallback = table.find((row) => basePay >= row.salaryMin && basePay <= row.salaryMax && Number(row.familyCount) === Number(familyCount));
   return fallback ? Number(fallback.tax || 0) : null;
+}
+
+function lookupNationalSimpleTax(basePay, familyCount, childCount, table, meta) {
+  const normalizedFamily = Math.max(1, Math.floor(Number(familyCount) || 1));
+  const normalizedChild = Math.max(0, Math.floor(Number(childCount) || 0));
+  const cappedFamily = Math.min(normalizedFamily, Number(meta.familyCap || normalizedFamily));
+  let tax = lookupNationalSimpleTaxBase(basePay, cappedFamily, table, meta);
+  if (tax === null) return null;
+  if (normalizedFamily > cappedFamily && cappedFamily >= 11) {
+    const tax10 = lookupNationalSimpleTaxBase(basePay, 10, table, meta);
+    const tax11 = lookupNationalSimpleTaxBase(basePay, 11, table, meta);
+    if (tax10 !== null && tax11 !== null) {
+      tax = tax11 - Math.max(0, tax10 - tax11) * (normalizedFamily - cappedFamily);
+    }
+  }
+  tax -= calculateNationalSimpleTaxChildDeduction(normalizedChild, meta);
+  return Math.max(0, Math.round(tax));
+}
+
+function lookupNationalSimpleTaxBase(basePay, familyCount, table, meta) {
+  const matched = table.find((row) => basePay >= row.salaryMin && basePay <= row.salaryMax && Number(row.familyCount) === Number(familyCount));
+  if (matched) return Number(matched.tax || 0);
+  const formula = resolveNationalSimpleTaxFormula(basePay, meta);
+  if (!formula) return null;
+  const referenceTax = table.find((row) => formula.referenceSalary >= row.salaryMin
+    && formula.referenceSalary <= row.salaryMax
+    && Number(row.familyCount) === Number(familyCount));
+  if (!referenceTax) return null;
+  const excess = Math.max(0, basePay - formula.threshold);
+  return Number(referenceTax.tax || 0) + Number(formula.baseAddition || 0) + (excess * Number(formula.taxableRatio || 1) * Number(formula.rate || 0));
+}
+
+function resolveNationalSimpleTaxFormula(basePay, meta) {
+  const formulas = Array.isArray(meta.highIncomeFormulas) ? meta.highIncomeFormulas : [];
+  return formulas.find((item) => basePay > Number(item.threshold || 0) && (item.max === null || basePay <= Number(item.max))) || null;
+}
+
+function calculateNationalSimpleTaxChildDeduction(childCount, meta) {
+  const rules = meta.childDeductions || {};
+  if (childCount <= 0) return 0;
+  if (childCount === 1) return Number(rules.oneChild || 0);
+  if (childCount === 2) return Number(rules.twoChildren || 0);
+  return Number(rules.twoChildren || 0) + ((childCount - 2) * Number(rules.additionalChild || 0));
 }
 
 function applyWelfareTemplate() {
@@ -3391,32 +3130,14 @@ function importSimpleTaxTableExcel(event) {
   reader.onload = (loadEvent) => {
     try {
       const workbook = XLSX.read(loadEvent.target.result, { type: "array" });
-      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: "" });
-      const parsed = [];
-      rows.forEach((row) => {
-        const [salaryMin, salaryMax] = parseSalaryRange(row["월급여"] || row["총급여"] || row["과세표준"] || row["salary"] || "");
-        if (!(salaryMin > 0 && salaryMax >= salaryMin)) return;
-        const explicitFamily = Number(String(row["가족수"] || row["부양가족수"] || row["family"] || "").replace(/[^0-9]/g, ""));
-        const explicitChild = Number(String(row["자녀수"] || row["8~20세 자녀수"] || row["child"] || "0").replace(/[^0-9]/g, "")) || 0;
-        const explicitTax = Number(String(row["소득세"] || row["원천세"] || row["tax"] || "").replace(/[^0-9]/g, ""));
-        if (explicitFamily && explicitTax >= 0) {
-          parsed.push({ salaryMin, salaryMax, familyCount: explicitFamily, childCount: explicitChild, tax: explicitTax });
-          return;
-        }
-        Object.keys(row).forEach((key) => {
-          const familyCount = Number(String(key).replace(/[^0-9]/g, ""));
-          if (!familyCount) return;
-          const tax = Number(String(row[key] || "").replace(/[^0-9]/g, ""));
-          if (!tax && tax !== 0) return;
-          parsed.push({ salaryMin, salaryMax, familyCount, childCount: explicitChild, tax });
-        });
-      });
-      const deduped = parsed.filter((item) => item.salaryMin > 0 && item.salaryMax >= item.salaryMin && item.familyCount > 0);
+      const officialTable = parseNationalSimpleTaxTableWorkbook(workbook);
+      const deduped = officialTable?.table || parseGenericSimpleTaxWorkbook(workbook);
       deduped.sort((a, b) => a.salaryMin - b.salaryMin || a.familyCount - b.familyCount || a.childCount - b.childCount);
       if (!deduped.length) throw new Error("유효한 행이 없습니다. 컬럼 예시: 월급여(범위), 가족수(또는 1명/2명...), 소득세");
       state.settings.simpleTaxTable = deduped;
+      state.settings.simpleTaxMeta = normalizeSimpleTaxMeta(officialTable?.meta);
       touchState(`간이세액표 업로드 ${deduped.length}건`);
+      renderActiveView();
       alert(`간이세액표 ${deduped.length}건 반영 완료`);
     } catch (error) {
       alert(`간이세액표 업로드 오류: ${error.message}`);
@@ -3433,6 +3154,115 @@ function parseSalaryRange(raw) {
   if (nums.length >= 2) return [Math.min(nums[0], nums[1]), Math.max(nums[0], nums[1])];
   if (nums.length === 1) return [nums[0], nums[0]];
   return [0, 0];
+}
+
+function parseGenericSimpleTaxWorkbook(workbook) {
+  const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: "" });
+  const parsed = [];
+  rows.forEach((row) => {
+    const [salaryMin, salaryMax] = parseSalaryRange(row["월급여"] || row["총급여"] || row["과세표준"] || row["salary"] || "");
+    if (!(salaryMin > 0 && salaryMax >= salaryMin)) return;
+    const explicitFamily = Number(String(row["가족수"] || row["부양가족수"] || row["family"] || "").replace(/[^0-9]/g, ""));
+    const explicitChild = Number(String(row["자녀수"] || row["8~20세 자녀수"] || row["child"] || "0").replace(/[^0-9]/g, "")) || 0;
+    const explicitTax = Number(String(row["소득세"] || row["원천세"] || row["tax"] || "").replace(/[^0-9]/g, ""));
+    if (explicitFamily && explicitTax >= 0) {
+      parsed.push({ salaryMin, salaryMax, familyCount: explicitFamily, childCount: explicitChild, tax: explicitTax });
+      return;
+    }
+    Object.keys(row).forEach((key) => {
+      const familyCount = Number(String(key).replace(/[^0-9]/g, ""));
+      if (!familyCount) return;
+      const tax = Number(String(row[key] || "").replace(/[^0-9]/g, ""));
+      if (!tax && tax !== 0) return;
+      parsed.push({ salaryMin, salaryMax, familyCount, childCount: explicitChild, tax });
+    });
+  });
+  return parsed.filter((item) => item.salaryMin > 0 && item.salaryMax >= item.salaryMin && item.familyCount > 0);
+}
+
+function parseNationalSimpleTaxTableWorkbook(workbook) {
+  const sheetName = workbook.SheetNames.find((name) => String(name).includes("근로소득간이세액표"));
+  if (!sheetName) return null;
+  const sheet = workbook.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+  const familyHeader = rows[2] || [];
+  if (!(String(rows[1]?.[2] || "").includes("공제대상가족") && Number(familyHeader[2]) === 1 && Number(familyHeader[12]) === 11)) {
+    return null;
+  }
+  const table = [];
+  rows.forEach((row) => {
+    const min = Number(row[0]);
+    const max = Number(row[1]);
+    if (min > 0 && max > 0) {
+      for (let family = 1; family <= 11; family += 1) {
+        const tax = normalizeSimpleTaxAmount(row[family + 1]);
+        if (tax === null) continue;
+        table.push({
+          salaryMin: min * 1000,
+          salaryMax: (max * 1000) - 1,
+          familyCount: family,
+          childCount: 0,
+          tax
+        });
+      }
+      return;
+    }
+    const label = String(row[0] || "").replace(/\s/g, "");
+    if (label === "10,000천원") {
+      for (let family = 1; family <= 11; family += 1) {
+        const tax = normalizeSimpleTaxAmount(row[family + 1]);
+        if (tax === null) continue;
+        table.push({
+          salaryMin: 10000000,
+          salaryMax: 10000000,
+          familyCount: family,
+          childCount: 0,
+          tax
+        });
+      }
+    }
+  });
+  if (!table.length) return null;
+  return {
+    table,
+    meta: {
+      source: "nts-official-2026-monthly",
+      familyCap: 11,
+      childDeductions: {
+        oneChild: 20830,
+        twoChildren: 45830,
+        additionalChild: 33330
+      },
+      highIncomeFormulas: [
+        { threshold: 10000000, max: 14000000, referenceSalary: 10000000, baseAddition: 25000, taxableRatio: 0.98, rate: 0.35 },
+        { threshold: 14000000, max: 28000000, referenceSalary: 10000000, baseAddition: 1397000, taxableRatio: 0.98, rate: 0.38 },
+        { threshold: 28000000, max: 30000000, referenceSalary: 10000000, baseAddition: 6610600, taxableRatio: 0.98, rate: 0.4 },
+        { threshold: 30000000, max: 45000000, referenceSalary: 10000000, baseAddition: 7394600, taxableRatio: 1, rate: 0.4 },
+        { threshold: 45000000, max: null, referenceSalary: 10000000, baseAddition: 13394600, taxableRatio: 1, rate: 0.42 }
+      ]
+    }
+  };
+}
+
+function normalizeSimpleTaxAmount(raw) {
+  if (raw === null || raw === undefined || raw === "" || raw === "-") return null;
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  const cleaned = String(raw).replace(/[^0-9]/g, "");
+  return cleaned ? Number(cleaned) : null;
+}
+
+function defaultSimpleTaxMeta() {
+  return {
+    source: "generic",
+    familyCap: null,
+    childDeductions: null,
+    highIncomeFormulas: []
+  };
+}
+
+function normalizeSimpleTaxMeta(meta) {
+  return Object.assign(defaultSimpleTaxMeta(), meta || {});
 }
 
 function calculateAllowancePackage(record, basePay, flags = {}) {
