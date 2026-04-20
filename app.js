@@ -643,6 +643,103 @@ function renderLeaveTxTable(title, rows) {
   `;
 }
 
+function renderLeaveHub() {
+  renderLeaveHubTabs();
+  const year = ui.currentYear;
+  const summaries = state.employees.map((employee) => employeeSummary(employee.id, year));
+  const root = document.getElementById("leave-hub-content");
+  if (!root) return;
+  if (ui.leaveTab === "overview") {
+    root.innerHTML = renderLeaveOverviewTable(summaries);
+    return;
+  }
+  if (ui.leaveTab === "sub") {
+    root.innerHTML = renderLeaveSubTable();
+    return;
+  }
+  root.innerHTML = renderLeaveSpecialTable();
+}
+
+function renderLeaveHubTabs() {
+  const tabRoot = document.getElementById("leave-hub-tabs");
+  if (!tabRoot) return;
+  const tabs = [
+    ["overview", "연차 오버뷰"],
+    ["sub", "대체휴가"],
+    ["special", "특별휴가"]
+  ];
+  tabRoot.innerHTML = tabs.map(([key, label]) => `
+    <button class="chip-btn${ui.leaveTab === key ? " active" : ""}" data-action="switch-leave-tab" data-leave-tab="${key}">${label}</button>
+  `).join("");
+}
+
+function switchLeaveTab(tab) {
+  ui.leaveTab = tab;
+  renderLeaveHub();
+}
+
+function renderLeaveOverviewTable(summaries) {
+  return `
+    <div class="kpi-grid">
+      ${kpiCard("white", "직원 수", `${summaries.length}`, "명", `${ui.currentYear}년 기준`)}
+      ${kpiCard("green", "총 생성", `${summaries.reduce((sum, item) => sum + item.total, 0).toFixed(1)}`, "일", "연차 기준")}
+      ${kpiCard("amber", "총 사용", `${summaries.reduce((sum, item) => sum + item.used, 0).toFixed(1)}`, "일", "연차 기준")}
+      ${kpiCard("primary", "총 잔여", `${summaries.reduce((sum, item) => sum + item.remain, 0).toFixed(1)}`, "일", "연차 기준")}
+    </div>
+    <div class="card">
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>직원</th><th>부서</th><th>생성</th><th>사용</th><th>잔여</th><th>사용률</th><th>상태</th></tr></thead>
+          <tbody>
+            ${summaries.map((item) => `<tr>
+              <td>${employeeCell(item.employee)}</td>
+              <td>${item.employee.dept || "-"}</td>
+              <td>${item.total.toFixed(1)}</td>
+              <td>${item.used.toFixed(1)}</td>
+              <td>${item.remain.toFixed(1)}</td>
+              <td>${item.usagePercent}%</td>
+              <td><span class="tag ${item.alertLevel === "safe" ? "green" : "amber"}">${item.alertLabel}</span></td>
+            </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function renderLeaveSubTable() {
+  const rows = [...state.subLeaves].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  return renderLeaveTxTable("대체휴가", rows);
+}
+
+function renderLeaveSpecialTable() {
+  const rows = [...state.specialLeaves].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  return renderLeaveTxTable("특별휴가", rows);
+}
+
+function renderLeaveTxTable(title, rows) {
+  return `
+    <div class="card">
+      <div class="card-head"><div class="card-title">${title} 기록</div></div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>일자</th><th>직원</th><th>구분</th><th>일수</th><th>사유</th><th>메모</th></tr></thead>
+          <tbody>
+            ${rows.length ? rows.map((item) => `<tr>
+              <td>${item.date || "-"}</td>
+              <td>${findEmployee(item.empId)?.name || "-"}</td>
+              <td>${item.action === "grant" ? "부여" : "사용"}</td>
+              <td>${Number(item.days || 0).toFixed(1)}</td>
+              <td>${item.reason || "-"}</td>
+              <td>${item.memo || item.evidence || "-"}</td>
+            </tr>`).join("") : `<tr><td colspan="6">${emptyState("기록이 없습니다.")}</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
 function renderCalendarView() {
   const employee = currentUser();
   if (!employee) return;
