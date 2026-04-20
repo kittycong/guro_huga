@@ -56,7 +56,6 @@ const ui = {
   settingsEmployeeId: "",
   subEmployeeId: "",
   specialEmployeeId: "",
-  wageCalcEmployeeId: "",
   leaveTab: "overview",
   orgEditId: "",
   managerFilter: { search: "", dept: "", risk: "all", usageMin: "", usageMax: "" },
