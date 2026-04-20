@@ -1227,6 +1227,85 @@ function runWageCalculator(shouldSave = true) {
   if (shouldSave) touchState("임금 자동계산 실행");
 }
 
+function renderPayrollCenter() {
+  const select = document.getElementById("wage-calc-emp");
+  if (!select) return;
+  select.innerHTML = state.employees.map((employee) => `<option value="${employee.id}" ${employee.id === ui.wageCalcEmployeeId ? "selected" : ""}>${employee.name}</option>`).join("");
+  if (!ui.wageCalcEmployeeId && state.employees[0]) ui.wageCalcEmployeeId = state.employees[0].id;
+  loadWageCalcFromEmployee();
+}
+
+function loadWageCalcFromEmployee() {
+  const employee = employeeById(ui.wageCalcEmployeeId) || state.employees[0];
+  if (!employee) return;
+  const record = getHrRecord(employee.id, ui.hrYear);
+  document.getElementById("wage-calc-grade").value = record.payGrade || "";
+  document.getElementById("wage-calc-level").value = record.payLevel || "";
+  document.getElementById("wage-calc-step").value = record.payStep || 1;
+  document.getElementById("wage-calc-spouse").value = record.spouseCount || 0;
+  document.getElementById("wage-calc-child").value = record.childCount || 0;
+  document.getElementById("wage-calc-other").value = record.otherDependentCount || 0;
+  document.getElementById("wage-calc-adjust").value = record.adjustmentAllowance || 0;
+  document.getElementById("wage-calc-overtime").value = record.overtimeHours || 0;
+  document.getElementById("wage-calc-holiday").value = record.holidayOvertimeHours || 0;
+  document.getElementById("wage-calc-family").value = record.taxFamilyCount || 1;
+  document.getElementById("wage-calc-child-tax").value = record.taxChildCount || 0;
+  document.getElementById("wage-calc-tax-rate").value = String(record.taxRatePercent || 100);
+  const flags = record.allowanceFlags || { meal: true, manager: true, family: true, adjustment: true, overtime: true };
+  document.getElementById("wage-allow-meal").checked = flags.meal !== false;
+  document.getElementById("wage-allow-manager").checked = flags.manager !== false;
+  document.getElementById("wage-allow-family").checked = flags.family !== false;
+  document.getElementById("wage-allow-adjust").checked = flags.adjustment !== false;
+  document.getElementById("wage-allow-overtime").checked = flags.overtime !== false;
+  runWageCalculator(false);
+}
+
+function runWageCalculator(shouldSave = true) {
+  const empId = document.getElementById("wage-calc-emp").value;
+  const employee = employeeById(empId);
+  if (!employee) return;
+  const year = ui.hrYear;
+  const record = getHrRecord(empId, year);
+  record.payGrade = document.getElementById("wage-calc-grade").value.trim();
+  record.payLevel = document.getElementById("wage-calc-level").value.trim();
+  record.payStep = Number(document.getElementById("wage-calc-step").value || 1);
+  record.spouseCount = Number(document.getElementById("wage-calc-spouse").value || 0);
+  record.childCount = Number(document.getElementById("wage-calc-child").value || 0);
+  record.otherDependentCount = Number(document.getElementById("wage-calc-other").value || 0);
+  record.adjustmentAllowance = Number(document.getElementById("wage-calc-adjust").value || 0);
+  record.overtimeHours = Number(document.getElementById("wage-calc-overtime").value || 0);
+  record.holidayOvertimeHours = Number(document.getElementById("wage-calc-holiday").value || 0);
+  record.taxFamilyCount = Number(document.getElementById("wage-calc-family").value || 1);
+  record.taxChildCount = Number(document.getElementById("wage-calc-child-tax").value || 0);
+  record.taxRatePercent = Number(document.getElementById("wage-calc-tax-rate").value || 100);
+  record.allowanceFlags = {
+    meal: document.getElementById("wage-allow-meal").checked,
+    manager: document.getElementById("wage-allow-manager").checked,
+    family: document.getElementById("wage-allow-family").checked,
+    adjustment: document.getElementById("wage-allow-adjust").checked,
+    overtime: document.getElementById("wage-allow-overtime").checked
+  };
+  record.monthlySalary = calculatePayByGrade(record.payGrade, record.payLevel, record.payStep);
+  const allowance = calculateAllowancePackage(record, record.monthlySalary, record.allowanceFlags);
+  const gross = record.monthlySalary + allowance.totalAllowance;
+  const tax = calculateWithholdingTax(record.monthlySalary, record.taxFamilyCount, record.taxChildCount, record.taxRatePercent);
+  const insurance = Number(record.socialInsurance || 0);
+  const net = gross - tax - insurance;
+  document.getElementById("wage-calc-result").innerHTML = `
+    <div class="status-row"><span>직원</span><strong>${employee.name}</strong></div>
+    <div class="status-row"><span>기본급</span><strong>${Math.round(record.monthlySalary).toLocaleString("ko-KR")}원</strong></div>
+    <div class="status-row"><span>제수당 합계</span><strong>${Math.round(allowance.totalAllowance).toLocaleString("ko-KR")}원</strong></div>
+    <div class="status-row"><span>통상임금</span><strong>${Math.round(allowance.ordinaryWage).toLocaleString("ko-KR")}원</strong></div>
+    <div class="status-row"><span>원천세(자동)</span><strong>${Math.round(tax).toLocaleString("ko-KR")}원</strong></div>
+    <div class="status-row"><span>지방소득세(10%)</span><strong>${Math.round(tax * 0.1).toLocaleString("ko-KR")}원</strong></div>
+    <div class="status-row"><span>4대보험</span><strong>${Math.round(insurance).toLocaleString("ko-KR")}원</strong></div>
+    <div class="status-row"><span>예상 실수령</span><strong>${Math.round(net - (tax * 0.1)).toLocaleString("ko-KR")}원</strong></div>
+    <div class="hint-box">계산식: 기본급 + 제수당 - 원천세 - 지방소득세(원천세의10%) - 4대보험. 간이세액표 업로드 시 lookup 적용.</div>
+  `;
+  state.hrRecords[`${empId}_${year}`] = record;
+  if (shouldSave) touchState("임금 자동계산 실행");
+}
+
 function renderErpView() {
   document.getElementById("erp-module-kpis").innerHTML = [
     kpiCard("blue", "인사기본", "4", "모듈", "기본 관리"),
