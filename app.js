@@ -39,6 +39,7 @@ const MENU_DEFS = [
   { key: "spe", label: "특별휴가" },
   { key: "office", label: "사무실 현황" },
   { key: "hr", label: "인사정보 등록" },
+  { key: "payroll", label: "인사·급여관리" },
   { key: "datahub", label: "데이터 허브" },
   { key: "erp", label: "ERP 구조" },
   { key: "perm", label: "권한 관리" },
@@ -144,6 +145,7 @@ function bindStaticEvents() {
     if (action === "import-excel") document.getElementById("excel-import-input").click();
     if (action === "export-hr-excel") exportHrExcel();
     if (action === "import-hr-excel") document.getElementById("hr-excel-import-input").click();
+    if (action === "import-pay-grade-excel") document.getElementById("pay-grade-import-input").click();
     if (action === "save-hr-info") saveHrInfoFromView();
     if (action === "save-payroll-info") savePayrollInfoFromView();
     if (action === "apply-welfare-template") applyWelfareTemplate();
@@ -169,6 +171,7 @@ function bindStaticEvents() {
     if (action === "delete-org-unit") deleteOrgUnit(actionElement.dataset.orgUnitId);
     if (action === "toggle-erp-module") toggleErpModule(actionElement.dataset.erpModuleId);
     if (action === "switch-leave-tab") switchLeaveTab(actionElement.dataset.leaveTab || "overview");
+    if (action === "run-wage-calculator") runWageCalculator();
   });
 
   document.getElementById("emp-sel").addEventListener("change", (event) => {
@@ -200,7 +203,12 @@ function bindStaticEvents() {
   document.getElementById("excel-import-input").addEventListener("change", importExcelSnapshot);
   document.getElementById("hr-excel-import-input").addEventListener("change", importHrExcel);
   document.getElementById("category-excel-import-input").addEventListener("change", importCategoryExcel);
+  document.getElementById("pay-grade-import-input").addEventListener("change", importPayGradeExcel);
   document.getElementById("backup-import-hidden").addEventListener("change", importBackupSnapshot);
+  document.getElementById("wage-calc-emp").addEventListener("change", (event) => {
+    ui.wageCalcEmployeeId = event.target.value;
+    loadWageCalcFromEmployee();
+  });
   document.getElementById("manager-search").addEventListener("input", (event) => {
     ui.managerFilter.search = event.target.value.trim().toLowerCase();
     renderManager();
@@ -356,6 +364,7 @@ function initializeSelections() {
   ui.settingsEmployeeId = ui.settingsEmployeeId || ui.selectedEmployeeId;
   ui.subEmployeeId = ui.subEmployeeId || ui.selectedEmployeeId;
   ui.specialEmployeeId = ui.specialEmployeeId || ui.selectedEmployeeId;
+  ui.wageCalcEmployeeId = ui.wageCalcEmployeeId || ui.selectedEmployeeId;
   ui.currentYear = ui.currentYear || new Date().getFullYear();
   ui.managerYear = ui.managerYear || ui.currentYear;
   ui.hrYear = ui.hrYear || ui.currentYear;
@@ -381,6 +390,7 @@ function renderActiveView() {
     spe: renderSpecialLeaves,
     office: renderOfficeView,
     hr: renderHrView,
+    payroll: renderPayrollCenter,
     datahub: renderDataHub,
     erp: renderErpView,
     perm: renderPermissions,
@@ -925,6 +935,65 @@ function renderDataHub() {
   if (!select.value) select.value = "employees";
 }
 
+function renderPayrollCenter() {
+  const select = document.getElementById("wage-calc-emp");
+  if (!select) return;
+  select.innerHTML = state.employees.map((employee) => `<option value="${employee.id}" ${employee.id === ui.wageCalcEmployeeId ? "selected" : ""}>${employee.name}</option>`).join("");
+  if (!ui.wageCalcEmployeeId && state.employees[0]) ui.wageCalcEmployeeId = state.employees[0].id;
+  loadWageCalcFromEmployee();
+}
+
+function loadWageCalcFromEmployee() {
+  const employee = employeeById(ui.wageCalcEmployeeId) || state.employees[0];
+  if (!employee) return;
+  const record = getHrRecord(employee.id, ui.hrYear);
+  document.getElementById("wage-calc-grade").value = record.payGrade || "";
+  document.getElementById("wage-calc-level").value = record.payLevel || "";
+  document.getElementById("wage-calc-step").value = record.payStep || 1;
+  document.getElementById("wage-calc-spouse").value = record.spouseCount || 0;
+  document.getElementById("wage-calc-child").value = record.childCount || 0;
+  document.getElementById("wage-calc-other").value = record.otherDependentCount || 0;
+  document.getElementById("wage-calc-adjust").value = record.adjustmentAllowance || 0;
+  document.getElementById("wage-calc-overtime").value = record.overtimeHours || 0;
+  document.getElementById("wage-calc-holiday").value = record.holidayOvertimeHours || 0;
+  runWageCalculator(false);
+}
+
+function runWageCalculator(shouldSave = true) {
+  const empId = document.getElementById("wage-calc-emp").value;
+  const employee = employeeById(empId);
+  if (!employee) return;
+  const year = ui.hrYear;
+  const record = getHrRecord(empId, year);
+  record.payGrade = document.getElementById("wage-calc-grade").value.trim();
+  record.payLevel = document.getElementById("wage-calc-level").value.trim();
+  record.payStep = Number(document.getElementById("wage-calc-step").value || 1);
+  record.spouseCount = Number(document.getElementById("wage-calc-spouse").value || 0);
+  record.childCount = Number(document.getElementById("wage-calc-child").value || 0);
+  record.otherDependentCount = Number(document.getElementById("wage-calc-other").value || 0);
+  record.adjustmentAllowance = Number(document.getElementById("wage-calc-adjust").value || 0);
+  record.overtimeHours = Number(document.getElementById("wage-calc-overtime").value || 0);
+  record.holidayOvertimeHours = Number(document.getElementById("wage-calc-holiday").value || 0);
+  record.monthlySalary = calculatePayByGrade(record.payGrade, record.payLevel, record.payStep);
+  const allowance = calculateAllowancePackage(record, record.monthlySalary);
+  const gross = record.monthlySalary + allowance.totalAllowance;
+  const tax = calculateAutoTax(record.monthlySalary);
+  const insurance = Number(record.socialInsurance || 0);
+  const net = gross - tax - insurance;
+  document.getElementById("wage-calc-result").innerHTML = `
+    <div class="status-row"><span>직원</span><strong>${employee.name}</strong></div>
+    <div class="status-row"><span>기본급</span><strong>${Math.round(record.monthlySalary).toLocaleString("ko-KR")}원</strong></div>
+    <div class="status-row"><span>제수당 합계</span><strong>${Math.round(allowance.totalAllowance).toLocaleString("ko-KR")}원</strong></div>
+    <div class="status-row"><span>통상임금</span><strong>${Math.round(allowance.ordinaryWage).toLocaleString("ko-KR")}원</strong></div>
+    <div class="status-row"><span>원천세(자동)</span><strong>${Math.round(tax).toLocaleString("ko-KR")}원</strong></div>
+    <div class="status-row"><span>4대보험</span><strong>${Math.round(insurance).toLocaleString("ko-KR")}원</strong></div>
+    <div class="status-row"><span>예상 실수령</span><strong>${Math.round(net).toLocaleString("ko-KR")}원</strong></div>
+    <div class="hint-box">계산식: 기본급 + 제수당 - 원천세 - 4대보험. 호봉표 매칭이 없으면 0원으로 계산됩니다.</div>
+  `;
+  state.hrRecords[`${empId}_${year}`] = record;
+  if (shouldSave) touchState("임금 자동계산 실행");
+}
+
 function renderErpView() {
   const sections = {
     hr: [
@@ -1335,7 +1404,7 @@ function renderPermissions() {
             <option value="limit" ${grade === "limit" ? "selected" : ""}>제한</option>
           </select>
         </td>
-        ${["dashboard", "leave", "cal", "hist", "set", "emp", "mgr", "sub", "spe", "office", "hr", "datahub", "erp", "sync"].map((menu) => `
+        ${["dashboard", "leave", "cal", "hist", "set", "emp", "mgr", "sub", "spe", "office", "hr", "payroll", "datahub", "erp", "sync"].map((menu) => `
           <td>
             <input type="checkbox" data-menu-emp="${employee.id}" data-menu-key="${menu}" ${hasRawMenu(employee.id, menu) ? "checked" : ""}>
           </td>
@@ -2874,6 +2943,40 @@ function applySeoulPayTemplate() {
   state.settings.allowanceRules = defaultAllowanceRules();
   touchState("2026 서울시 급여/제수당 템플릿 적용");
   renderHrView();
+}
+
+function importPayGradeExcel(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (typeof XLSX === "undefined") {
+    alert("엑셀 라이브러리를 불러오지 못했습니다.");
+    event.target.value = "";
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (loadEvent) => {
+    try {
+      const workbook = XLSX.read(loadEvent.target.result, { type: "array" });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: "" });
+      const parsed = rows.map((row) => ({
+        grade: String(row["직급"] || row["직군"] || "").trim(),
+        level: String(row["급수"] || row["등급"] || "").trim(),
+        step: Number(row["호봉"] || row["step"] || 0),
+        basePay: Number(row["월 기본급"] || row["기본급"] || row["basePay"] || 0)
+      })).filter((item) => item.step > 0 && item.basePay > 0 && (item.grade || item.level));
+      if (!parsed.length) throw new Error("유효한 행이 없습니다. 컬럼명: 직급/급수/호봉/월 기본급");
+      state.settings.payGradeTable = parsed;
+      touchState(`임금테이블 엑셀 업로드 ${parsed.length}건`);
+      renderHrView();
+      alert(`임금테이블 ${parsed.length}건 반영 완료`);
+    } catch (error) {
+      alert(`임금테이블 업로드 오류: ${error.message}`);
+    } finally {
+      event.target.value = "";
+    }
+  };
+  reader.readAsArrayBuffer(file);
 }
 
 function calculateAllowancePackage(record, basePay) {
