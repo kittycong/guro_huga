@@ -61,14 +61,13 @@
           </div>
         </div>
 
-        <div id="today-summary" class="kpi-grid"></div>
-        <div id="dashboard-kpis" class="kpi-grid"></div>
+        <div id="dashboard-kpis" class="kpi-grid kpi-main"></div>
 
         <div class="layout-two">
-          <div class="card">
+          <div class="card card-priority">
             <div class="card-head">
               <div class="card-title">경고 / 촉진 필요</div>
-              <div id="alert-count" class="card-meta"></div>
+              <div id="alert-count" class="card-meta">우선 확인</div>
             </div>
             <div id="alert-list" class="stack-list"></div>
           </div>
@@ -82,7 +81,7 @@
           </div>
         </div>
 
-        <div class="layout-two">
+        <div class="layout-two aux-section">
           <div class="card">
             <div class="card-head">
               <div class="card-title">공지 / 운영 메모</div>
@@ -112,8 +111,6 @@
                 <tr>
                   <th>직원</th>
                   <th>부서</th>
-                  <th>생성</th>
-                  <th>사용</th>
                   <th>잔여</th>
                   <th>사용률</th>
                   <th>최근 기록</th>
@@ -166,10 +163,10 @@
               <strong id="month-label"></strong>
             </div>
             <div class="legend">
-              <span><i class="dot blue"></i>연차</span>
-              <span><i class="dot amber"></i>반차</span>
-              <span><i class="dot purple"></i>대체휴가</span>
-              <span><i class="dot red"></i>공휴일</span>
+              <span><i class="dot blue"></i><em>🗓</em> 연차</span>
+              <span><i class="dot amber"></i><em>◐</em> 반차</span>
+              <span><i class="dot purple"></i><em>⇄</em> 대체휴가</span>
+              <span><i class="dot red"></i><em>★</em> 공휴일</span>
             </div>
           </div>
           <div class="calendar-body">
@@ -220,8 +217,18 @@
             <button class="btn primary" data-action="save-settings">수정 후 저장</button>
           </div>
         </div>
-        <div class="layout-two">
-          <div class="card">
+        <div class="card sticky-summary-card">
+          <div class="card-head">
+            <div class="card-title">현재 수정 대상</div>
+            <div class="card-meta" id="settings-focus-meta">직원 기준</div>
+          </div>
+          <div id="settings-focus" class="card-body"></div>
+        </div>
+
+        <div class="section-block">
+          <div class="section-title">기본 설정</div>
+          <div class="layout-two set-layout">
+            <div class="card">
             <div class="card-head">
               <div class="card-title">직원 선택</div>
             </div>
@@ -255,19 +262,55 @@
 
               <button class="btn ghost small" data-action="add-setting-year">연도 추가</button>
             </div>
-          </div>
-
-          <div class="card">
-            <div class="card-head">
-              <div class="card-title">연도별 연차 일수</div>
-              <div class="card-meta">수동 입력값 우선</div>
             </div>
-            <div id="year-inputs" class="card-body stacked-fields"></div>
+
+            <div class="card">
+              <div class="card-head">
+                <div class="card-title">취업규칙 / 연차 운영 기준</div>
+                <div class="card-meta">문서형 편집 영역</div>
+              </div>
+              <div class="card-body stacked-fields">
+                <div class="doc-toolbar">
+                  <span class="row-desc" id="rules-last-updated">마지막 수정 정보는 저장 시 반영됩니다.</span>
+                  <div class="button-row">
+                    <button class="btn ghost small" data-action="reset-settings">기준 초기화</button>
+                  </div>
+                </div>
+                <textarea id="employment-rules" class="field tall-area" rows="14"></textarea>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div class="layout-two">
+        <div class="section-block">
+          <div class="section-title">연도별 연차 일수</div>
           <div class="card">
+            <div class="card-head">
+              <div class="card-title">자동 계산 대비 수동 입력</div>
+              <div class="card-meta">수동 입력값 우선</div>
+            </div>
+            <div class="card-body">
+              <div class="table-wrap">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>연도</th>
+                      <th>자동 계산값</th>
+                      <th>수동 입력값</th>
+                      <th>적용값</th>
+                    </tr>
+                  </thead>
+                  <tbody id="year-inputs"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-block">
+          <div class="section-title">퇴사 정산 / 운영 기준</div>
+          <div class="layout-two set-layout">
+            <div class="card card-accent">
             <div class="card-head">
               <div class="card-title">퇴사자 연차 정산 참고 계산</div>
               <div class="card-meta">내부 참고용</div>
@@ -290,15 +333,17 @@
               <div class="hint-box">노동 계산기 방식 반영: 만1년 미만 월차(최대11일), 만1년 이상 15일 + 2년마다 1일(최대25일), 퇴사 시점까지 발생분 기준.</div>
               <div id="settlement-summary" class="hint-box"></div>
             </div>
-          </div>
-
-          <div class="card">
-            <div class="card-head">
-              <div class="card-title">취업규칙 / 연차 운영 기준</div>
-              <div class="card-meta">읽기 및 수정 가능</div>
             </div>
-            <div class="card-body stacked-fields">
-              <textarea id="employment-rules" class="field tall-area" rows="14"></textarea>
+
+            <div class="card">
+              <div class="card-head">
+                <div class="card-title">운영 기준 참고</div>
+                <div class="card-meta">정산 안내 메모</div>
+              </div>
+              <div class="card-body stacked-fields">
+                <div class="hint-box">정산 계산 결과는 내부 참고용입니다. 최종 지급 전 인사/회계 검토를 진행하세요.</div>
+                <div class="hint-box">입력값 변경 후 <strong>수정 후 저장</strong> 버튼으로 기준을 반영합니다.</div>
+              </div>
             </div>
           </div>
         </div>
@@ -717,23 +762,48 @@
           </div>
         </div>
 
-        <div class="layout-two">
+        <div class="section-block">
+          <div class="section-title">동기화 상태</div>
+          <div class="card">
+            <div class="card-head">
+              <div class="card-title">현재 상태</div>
+              <div class="card-meta">로그보다 상태 우선</div>
+            </div>
+            <div class="card-body stacked-fields">
+              <div class="status-grid">
+                <div class="status-tile"><span>연결 상태</span><strong id="sync-detail-status">대기</strong></div>
+                <div class="status-tile"><span>마지막 저장</span><strong id="last-saved-at">없음</strong></div>
+                <div class="status-tile"><span>마지막 불러오기</span><strong id="last-loaded-at">없음</strong></div>
+                <div class="status-tile"><span>자동저장</span><strong id="auto-save-label">꺼짐</strong></div>
+              </div>
+              <div id="sync-log" class="log-box">앱이 준비되면 여기 표시됩니다.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-block">
+          <div class="section-title">연결 설정</div>
+          <div class="layout-two sync-layout">
           <div class="card">
             <div class="card-head">
               <div class="card-title">GitHub 연결</div>
             </div>
             <div class="card-body stacked-fields">
-              <label class="field-label" for="repo-owner">Owner</label>
+              <label class="field-label" for="repo-owner">조직/사용자명 (Owner)</label>
               <input id="repo-owner" class="field" type="text">
+              <div class="row-desc">예: 회사 GitHub 조직명 또는 개인 계정명</div>
 
-              <label class="field-label" for="repo-name">Repository</label>
+              <label class="field-label" for="repo-name">저장소 이름 (Repository)</label>
               <input id="repo-name" class="field" type="text">
+              <div class="row-desc">예: guro_huga</div>
 
-              <label class="field-label" for="repo-branch">Branch</label>
+              <label class="field-label" for="repo-branch">배포 브랜치 (Branch)</label>
               <input id="repo-branch" class="field" type="text">
+              <div class="row-desc">일반적으로 main 브랜치를 사용합니다.</div>
 
               <label class="field-label" for="repo-path">공유 JSON 경로</label>
               <input id="repo-path" class="field" type="text">
+              <div class="row-desc">예: data/app-data.json</div>
 
               <label class="checkbox-row">
                 <input id="auto-save-toggle" type="checkbox">
@@ -742,9 +812,10 @@
             </div>
           </div>
 
-          <div class="card">
+          <div class="card sensitive-card">
             <div class="card-head">
-              <div class="card-title">관리자 인증</div>
+              <div class="card-title">민감정보 입력</div>
+              <div class="card-meta">토큰/비밀번호</div>
             </div>
             <div class="card-body stacked-fields">
               <label class="field-label" for="github-token">GitHub Personal Access Token</label>
@@ -757,50 +828,45 @@
 
               <div class="button-row">
                 <button class="btn ghost small" data-action="save-token">토큰 저장</button>
-                <button class="btn ghost small" data-action="clear-token">토큰 삭제</button>
+                <button class="btn danger small" data-action="clear-token">토큰 삭제</button>
               </div>
+
+              <label class="field-label" for="admin-password">관리자 화면 비밀번호</label>
+              <input id="admin-password" class="field" type="password" placeholder="권한/보안 메뉴 잠금용">
+              <div class="button-row">
+                <button class="btn ghost small" data-action="save-admin-password">비밀번호 저장</button>
+                <button class="btn danger small" data-action="clear-admin-password">비밀번호 삭제</button>
+              </div>
+              <div class="hint-box">권한 관리 메뉴는 비밀번호 인증 후에만 표시됩니다. 비밀번호는 브라우저 로컬에 저장됩니다.</div>
             </div>
           </div>
         </div>
-
-        <div class="card">
-          <div class="card-head">
-            <div class="card-title">동기화 상태</div>
-          </div>
-          <div class="card-body stacked-fields">
-            <div class="status-row"><span>마지막 저장</span><strong id="last-saved-at">없음</strong></div>
-            <div class="status-row"><span>마지막 불러오기</span><strong id="last-loaded-at">없음</strong></div>
-            <div class="status-row"><span>현재 상태</span><strong id="sync-detail-status">대기</strong></div>
-            <div id="sync-log" class="log-box">앱이 준비되면 여기 표시됩니다.</div>
-          </div>
         </div>
 
-        <div class="layout-two">
+        <div class="section-block">
+          <div class="section-title">보안 / 백업</div>
+          <div class="layout-two sync-layout">
           <div class="card">
             <div class="card-head">
               <div class="card-title">보안 설정</div>
             </div>
             <div class="card-body stacked-fields">
-              <label class="field-label" for="admin-password">관리자 화면 비밀번호</label>
-              <input id="admin-password" class="field" type="password" placeholder="권한/보안 메뉴 잠금용">
-              <div class="button-row">
-                <button class="btn ghost small" data-action="save-admin-password">비밀번호 저장</button>
-                <button class="btn ghost small" data-action="clear-admin-password">비밀번호 삭제</button>
-              </div>
-              <div class="hint-box">권한 관리 메뉴는 비밀번호 인증 후에만 표시됩니다. 비밀번호는 브라우저 로컬에 저장됩니다.</div>
+              <div class="hint-box">보안 설정은 관리자 계정에서만 수정하고, 공용 PC에서는 토큰 저장을 피하세요.</div>
+              <div class="hint-box">비밀번호 분실 시 브라우저 로컬 데이터를 초기화해야 합니다.</div>
             </div>
           </div>
 
-          <div class="card">
+          <div class="card danger-zone">
             <div class="card-head">
               <div class="card-title">백업 / 복구</div>
             </div>
             <div class="card-body stacked-fields">
               <button class="btn ghost" data-action="download-backup">JSON 백업 다운로드</button>
-              <button class="btn primary" data-action="import-backup">백업 복원 적용</button>
-              <div class="hint-box">복원 시 현재 화면 데이터가 덮어쓰기 됩니다.</div>
+              <button class="btn danger" data-action="import-backup">백업 복원 적용</button>
+              <div class="hint-box">복원 시 현재 화면 데이터가 즉시 덮어쓰기 됩니다. 복원 전에 반드시 백업 파일을 먼저 다운로드하세요.</div>
             </div>
           </div>
+        </div>
         </div>
 
         <div class="card">

@@ -498,8 +498,6 @@ function renderDashboard() {
   const avgUsage = summaries.length ? Math.round(summaries.reduce((sum, item) => sum + item.usagePercent, 0) / summaries.length) : 0;
   const peopleAtRisk = summaries.filter((item) => item.alertLevel === "urgent" || item.alertLevel === "warning").length;
   const promotionTargets = summaries.filter((item) => item.promotionNeeded).length;
-  document.getElementById("today-summary").innerHTML = "";
-
   document.getElementById("dashboard-kpis").innerHTML = [
     kpiCard("primary", "전체 직원 수", `${state.employees.length}`, "명", "운영 대상"),
     kpiCard("blue", "평균 사용률", `${avgUsage}`, "%", "연차 기준"),
@@ -539,6 +537,110 @@ function renderDashboard() {
       </div>
     `).join("")
     : emptyState("아직 기록된 변경 로그가 없습니다.");
+
+  document.querySelectorAll("[data-manager-open]").forEach((button) => {
+    button.addEventListener("click", () => {
+      ui.selectedEmployeeId = button.dataset.managerOpen;
+      switchView("cal");
+    });
+  });
+}
+
+function renderLeaveHub() {
+  renderLeaveHubTabs();
+  const year = ui.currentYear;
+  const summaries = state.employees.map((employee) => employeeSummary(employee.id, year));
+  const root = document.getElementById("leave-hub-content");
+  if (!root) return;
+  if (ui.leaveTab === "overview") {
+    root.innerHTML = renderLeaveOverviewTable(summaries);
+    return;
+  }
+  if (ui.leaveTab === "sub") {
+    root.innerHTML = renderLeaveSubTable();
+    return;
+  }
+  root.innerHTML = renderLeaveSpecialTable();
+}
+
+function renderLeaveHubTabs() {
+  const tabRoot = document.getElementById("leave-hub-tabs");
+  if (!tabRoot) return;
+  const tabs = [
+    ["overview", "연차 오버뷰"],
+    ["sub", "대체휴가"],
+    ["special", "특별휴가"]
+  ];
+  tabRoot.innerHTML = tabs.map(([key, label]) => `
+    <button class="chip-btn${ui.leaveTab === key ? " active" : ""}" data-action="switch-leave-tab" data-leave-tab="${key}">${label}</button>
+  `).join("");
+}
+
+function switchLeaveTab(tab) {
+  ui.leaveTab = tab;
+  renderLeaveHub();
+}
+
+function renderLeaveOverviewTable(summaries) {
+  return `
+    <div class="kpi-grid">
+      ${kpiCard("white", "직원 수", `${summaries.length}`, "명", `${ui.currentYear}년 기준`)}
+      ${kpiCard("green", "총 생성", `${summaries.reduce((sum, item) => sum + item.total, 0).toFixed(1)}`, "일", "연차 기준")}
+      ${kpiCard("amber", "총 사용", `${summaries.reduce((sum, item) => sum + item.used, 0).toFixed(1)}`, "일", "연차 기준")}
+      ${kpiCard("primary", "총 잔여", `${summaries.reduce((sum, item) => sum + item.remain, 0).toFixed(1)}`, "일", "연차 기준")}
+    </div>
+    <div class="card">
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>직원</th><th>부서</th><th>생성</th><th>사용</th><th>잔여</th><th>사용률</th><th>상태</th></tr></thead>
+          <tbody>
+            ${summaries.map((item) => `<tr>
+              <td>${employeeCell(item.employee)}</td>
+              <td>${item.employee.dept || "-"}</td>
+              <td>${item.total.toFixed(1)}</td>
+              <td>${item.used.toFixed(1)}</td>
+              <td>${item.remain.toFixed(1)}</td>
+              <td>${item.usagePercent}%</td>
+              <td><span class="tag ${item.alertLevel === "safe" ? "green" : "amber"}">${item.alertLabel}</span></td>
+            </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function renderLeaveSubTable() {
+  const rows = [...state.subLeaves].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  return renderLeaveTxTable("대체휴가", rows);
+}
+
+function renderLeaveSpecialTable() {
+  const rows = [...state.specialLeaves].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  return renderLeaveTxTable("특별휴가", rows);
+}
+
+function renderLeaveTxTable(title, rows) {
+  return `
+    <div class="card">
+      <div class="card-head"><div class="card-title">${title} 기록</div></div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>일자</th><th>직원</th><th>구분</th><th>일수</th><th>사유</th><th>메모</th></tr></thead>
+          <tbody>
+            ${rows.length ? rows.map((item) => `<tr>
+              <td>${item.date || "-"}</td>
+              <td>${findEmployee(item.empId)?.name || "-"}</td>
+              <td>${item.action === "grant" ? "부여" : "사용"}</td>
+              <td>${Number(item.days || 0).toFixed(1)}</td>
+              <td>${item.reason || "-"}</td>
+              <td>${item.memo || item.evidence || "-"}</td>
+            </tr>`).join("") : `<tr><td colspan="6">${emptyState("기록이 없습니다.")}</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }
 
 function renderLeaveHub() {
@@ -642,14 +744,17 @@ function renderCalendarView() {
   const employee = currentUser();
   if (!employee) return;
   const summary = employeeSummary(employee.id, ui.currentYear);
+  const monthPrefix = `${ui.currentYear}-${pad(ui.currentMonth + 1)}`;
+  const plannedThisMonth = state.records
+    .filter((record) => record.empId === employee.id && record.date.startsWith(monthPrefix))
+    .reduce((sum, record) => sum + leaveDelta(record.type), 0);
   document.getElementById("cal-heading").textContent = `${employee.name} · ${ui.currentYear}년 ${ui.currentMonth + 1}월`;
   document.getElementById("month-label").textContent = `${ui.currentYear}년 ${ui.currentMonth + 1}월`;
   document.getElementById("personal-kpis").innerHTML = [
-    kpiCard("white", "생성 연차", summary.total.toFixed(1), "일", `${ui.currentYear}년 기준`),
+    kpiCard("blue", "올해 발생", summary.total.toFixed(1), "일", `${ui.currentYear}년 기준`),
     kpiCard("green", "사용", summary.used.toFixed(1), "일", "연차 + 반차"),
-    kpiCard("amber", "반차 횟수", `${summary.halfCount}`, "회", "0.5일 / 0.25일 포함"),
-    kpiCard("red", "공휴일", `${monthHolidayCount(ui.currentYear, ui.currentMonth)}`, "일", "이번 달"),
-    kpiCard("primary", "잔여", summary.remain.toFixed(1), "일", summary.alertLabel)
+    kpiCard("primary", "잔여", summary.remain.toFixed(1), "일", summary.alertLabel),
+    kpiCard("amber", "이번 달 예정", plannedThisMonth.toFixed(1), "일", `${ui.currentMonth + 1}월 기록`)
   ].join("");
 
   renderYearTabs("year-tabs", ui.currentYear, (year) => {
@@ -693,6 +798,18 @@ function renderSettings() {
   document.getElementById("leave-unit-price").value = selected.leaveUnitPrice || "";
   document.getElementById("average-daily-wage").value = selected.averageDailyWage || "";
   document.getElementById("employment-rules").value = state.settings.employmentRules || defaultEmploymentRules();
+  document.getElementById("rules-last-updated").textContent = state.updatedAt
+    ? `마지막 수정: ${state.updatedAt}`
+    : "마지막 수정 정보가 없습니다.";
+  document.getElementById("settings-focus").innerHTML = `
+    <div class="focus-user">
+      <div class="avatar" style="background:${selected.color || COLORS[0]}">${avatarContent(selected)}</div>
+      <div>
+        <div class="row-title">${selected.name}</div>
+        <div class="row-desc">${[selected.dept, selected.role].filter(Boolean).join(" · ") || "부서/직책 미지정"}</div>
+      </div>
+    </div>
+  `;
   const years = allYears();
   const auto = accrual(selected.joinDate, ui.currentYear, selected.fiscalYearMonth);
   document.getElementById("accrual-hint").textContent = selected.joinDate
@@ -702,12 +819,14 @@ function renderSettings() {
   document.getElementById("year-inputs").innerHTML = years.map((year) => {
     const value = getTotal(selected.id, year);
     const autoValue = accrual(selected.joinDate, year, selected.fiscalYearMonth);
+    const applied = Number(value || 0);
     return `
-      <div>
-        <label class="field-label">${year}년</label>
-        <input class="field" type="number" min="0" max="50" step="0.5" value="${value}" data-total-emp="${selected.id}" data-total-year="${year}">
-        <div class="row-desc">자동 계산 ${autoValue}일</div>
-      </div>
+      <tr>
+        <td>${year}년</td>
+        <td>${autoValue.toFixed(1)}일</td>
+        <td><input class="field field-inline" type="number" min="0" max="50" step="0.5" value="${value}" data-total-emp="${selected.id}" data-total-year="${year}"></td>
+        <td><strong>${applied.toFixed(1)}일</strong></td>
+      </tr>
     `;
   }).join("");
 
@@ -1574,6 +1693,7 @@ function renderSyncPage() {
   document.getElementById("last-saved-at").textContent = lastSavedAt || "없음";
   document.getElementById("last-loaded-at").textContent = lastLoadedAt || "없음";
   document.getElementById("sync-detail-status").textContent = syncStatus.label;
+  document.getElementById("auto-save-label").textContent = getSyncPrefs().autoSave ? "사용" : "꺼짐";
   document.getElementById("sync-log").textContent = syncStatus.detail;
   const archive = getArchiveSnapshots();
   document.getElementById("snapshot-log").textContent = archive.length
@@ -1589,6 +1709,7 @@ function renderSyncStatus() {
   document.getElementById("last-saved-at").textContent = lastSavedAt || "없음";
   document.getElementById("last-loaded-at").textContent = lastLoadedAt || "없음";
   document.getElementById("sync-detail-status").textContent = syncStatus.label;
+  document.getElementById("auto-save-label").textContent = getSyncPrefs().autoSave ? "사용" : "꺼짐";
   document.getElementById("sync-log").textContent = syncStatus.detail;
 }
 
@@ -1650,10 +1771,13 @@ function renderCalendarGrid() {
     if (isSubHoliday) classes.push("sub");
     if (records.some((record) => record.type === "연차")) classes.push("leave");
     if (records.some((record) => record.type !== "연차")) classes.push("half");
+    const leaveCount = records.filter((record) => record.type === "연차").length;
+    const halfCount = records.filter((record) => record.type !== "연차").length;
     const tags = [];
-    if (holiday) tags.push(`<span class="day-tag holiday">${holiday}</span>`);
-    if (isSubHoliday) tags.push(`<span class="day-tag sub">대체휴일</span>`);
-    records.forEach((record) => tags.push(`<span class="day-tag ${record.type === "연차" ? "leave" : "half"}">${record.type}</span>`));
+    if (holiday) tags.push(`<span class="day-tag holiday">★ 공휴일</span>`);
+    else if (isSubHoliday) tags.push(`<span class="day-tag sub">⇄ 대체휴일</span>`);
+    if (leaveCount) tags.push(`<span class="day-tag leave">🗓 연차 ${leaveCount}</span>`);
+    if (halfCount) tags.push(`<span class="day-tag half">◐ 반차 ${halfCount}</span>`);
 
     cells.push(`
       <button class="${classes.join(" ")}" type="button" data-date="${key}">
@@ -1728,10 +1852,13 @@ function renderAlertItem(alert) {
   return `
     <div class="row-item">
       <div class="row-main">
-        <div class="row-title">${alert.title}</div>
-        <div class="row-desc">${alert.description}</div>
+        <div class="row-title">${alert.name} · ${alert.dept}</div>
+        <div class="row-desc">${alert.metric} · ${alert.reason}</div>
       </div>
-      <span class="tag ${alert.tone}">${alert.badge}</span>
+      <div class="row-item-actions">
+        <span class="tag ${alert.tone}">${alert.badge}</span>
+        <button class="action-link" type="button" data-manager-open="${alert.empId}">바로가기</button>
+      </div>
     </div>
   `;
 }
@@ -1749,11 +1876,14 @@ function buildDepartmentSummary(summaries) {
 
   return Array.from(map.entries()).map(([dept, value]) => {
     const usage = value.total ? Math.round((value.used / value.total) * 100) : 0;
+    const avgRemain = value.count ? round((value.total - value.used) / value.count) : 0;
+    const riskCount = summaries.filter((item) => (item.employee.dept || "미지정") === dept && (item.alertLevel === "urgent" || item.alertLevel === "warning")).length;
     return `
       <div class="row-item">
         <div class="row-main">
           <div class="row-title">${dept}</div>
-          <div class="row-desc">${value.count}명 · 생성 ${value.total.toFixed(1)}일 · 사용 ${value.used.toFixed(1)}일</div>
+          <div class="row-desc">${value.count}명 · 위험 ${riskCount}명 · 평균 잔여 ${avgRemain.toFixed(1)}일</div>
+          <div class="progress mini"><span style="width:${usage}%"></span></div>
         </div>
         <span class="tag ${usage >= 80 ? "red" : usage >= 50 ? "amber" : "green"}">${usage}%</span>
       </div>
@@ -1766,15 +1896,21 @@ function buildAlerts(summaries) {
   summaries.forEach((item) => {
     if (item.remain <= 0) {
       alerts.push({
-        title: `${item.employee.name} · 잔여 연차 없음`,
-        description: `${item.employee.dept || "부서 미지정"} · 잔여 연차가 0일 이하입니다.`,
+        empId: item.employee.id,
+        name: item.employee.name,
+        dept: item.employee.dept || "부서 미지정",
+        metric: `잔여 ${item.remain}일 / 사용률 ${item.usagePercent}%`,
+        reason: "잔여 연차가 0일 이하입니다.",
         badge: "긴급",
         tone: "red"
       });
     } else if (item.expiryRisk) {
       alerts.push({
-        title: `${item.employee.name} · 연차 소멸 위험`,
-        description: `${item.remain}일 남아 있어 ${state.settings.warningMonth}월 이후 소멸 위험으로 분류했습니다.`,
+        empId: item.employee.id,
+        name: item.employee.name,
+        dept: item.employee.dept || "부서 미지정",
+        metric: `잔여 ${item.remain}일 / 사용률 ${item.usagePercent}%`,
+        reason: `${state.settings.warningMonth}월 이후 소멸 위험 기준에 해당합니다.`,
         badge: "주의",
         tone: "amber"
       });
@@ -1782,8 +1918,11 @@ function buildAlerts(summaries) {
 
     if (item.promotionNeeded) {
       alerts.push({
-        title: `${item.employee.name} · 촉진 검토 필요`,
-        description: `사용률 ${item.usagePercent}% / 잔여 ${item.remain}일로 촉진 대상 기준을 충족했습니다.`,
+        empId: item.employee.id,
+        name: item.employee.name,
+        dept: item.employee.dept || "부서 미지정",
+        metric: `잔여 ${item.remain}일 / 사용률 ${item.usagePercent}%`,
+        reason: "촉진 대상 기준을 충족했습니다.",
         badge: "촉진",
         tone: "purple"
       });
