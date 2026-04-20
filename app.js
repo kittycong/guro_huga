@@ -60,7 +60,11 @@ const ui = {
   leaveTab: "overview",
   orgEditId: "",
   collapsedCards: {},
-  managerFilter: { search: "", dept: "", risk: "all", usageMin: "", usageMax: "" },
+  histFilter: { month: "", type: "", search: "" },
+  empFilter: { search: "", dept: "", risk: "all", viewMode: "card" },
+  officeFilter: { dept: "", role: "", balance: "all" },
+  hrFilter: { search: "", status: "" },
+  managerFilter: { search: "", dept: "", risk: "all", usageMin: "", usageMax: "", remainMin: "", sort: "name" },
   modalType: ""
 };
 
@@ -235,6 +239,64 @@ function bindStaticEvents() {
     ui.managerFilter.usageMax = event.target.value;
     renderManager();
   });
+  document.getElementById("manager-remain-min").addEventListener("input", (event) => {
+    ui.managerFilter.remainMin = event.target.value;
+    renderManager();
+  });
+  document.getElementById("manager-sort").addEventListener("change", (event) => {
+    ui.managerFilter.sort = event.target.value;
+    renderManager();
+  });
+  document.getElementById("hist-month").addEventListener("change", (event) => {
+    ui.histFilter.month = event.target.value;
+    renderHistory();
+  });
+  document.getElementById("hist-type").addEventListener("change", (event) => {
+    ui.histFilter.type = event.target.value;
+    renderHistory();
+  });
+  document.getElementById("hist-search").addEventListener("input", (event) => {
+    ui.histFilter.search = event.target.value.trim().toLowerCase();
+    renderHistory();
+  });
+  document.getElementById("emp-search").addEventListener("input", (event) => {
+    ui.empFilter.search = event.target.value.trim().toLowerCase();
+    renderEmployees();
+  });
+  document.getElementById("emp-dept").addEventListener("input", (event) => {
+    ui.empFilter.dept = event.target.value.trim().toLowerCase();
+    renderEmployees();
+  });
+  document.getElementById("emp-risk").addEventListener("change", (event) => {
+    ui.empFilter.risk = event.target.value;
+    renderEmployees();
+  });
+  document.getElementById("emp-view-mode").addEventListener("change", (event) => {
+    ui.empFilter.viewMode = event.target.value;
+    renderEmployees();
+  });
+  document.getElementById("sub-employee-search").addEventListener("input", () => renderSubLeaves());
+  document.getElementById("office-dept-filter").addEventListener("input", (event) => {
+    ui.officeFilter.dept = event.target.value.trim().toLowerCase();
+    renderOfficeView();
+  });
+  document.getElementById("office-role-filter").addEventListener("input", (event) => {
+    ui.officeFilter.role = event.target.value.trim().toLowerCase();
+    renderOfficeView();
+  });
+  document.getElementById("office-balance-filter").addEventListener("change", (event) => {
+    ui.officeFilter.balance = event.target.value;
+    renderOfficeView();
+  });
+  document.getElementById("hr-search").addEventListener("input", (event) => {
+    ui.hrFilter.search = event.target.value.trim().toLowerCase();
+    renderHrView();
+  });
+  document.getElementById("hr-status-filter").addEventListener("change", (event) => {
+    ui.hrFilter.status = event.target.value.trim().toLowerCase();
+    renderHrView();
+  });
+  document.getElementById("category-select").addEventListener("change", renderDataHub);
 
   document.body.addEventListener("change", (event) => {
     const moduleId = event.target.dataset.erpModuleId;
@@ -550,103 +612,18 @@ function renderLeaveHub() {
   renderLeaveHubTabs();
   const year = ui.currentYear;
   const summaries = state.employees.map((employee) => employeeSummary(employee.id, year));
-  const root = document.getElementById("leave-hub-content");
-  if (!root) return;
-  if (ui.leaveTab === "overview") {
-    root.innerHTML = renderLeaveOverviewTable(summaries);
-    return;
-  }
-  if (ui.leaveTab === "sub") {
-    root.innerHTML = renderLeaveSubTable();
-    return;
-  }
-  root.innerHTML = renderLeaveSpecialTable();
-}
-
-function renderLeaveHubTabs() {
-  const tabRoot = document.getElementById("leave-hub-tabs");
-  if (!tabRoot) return;
-  const tabs = [
-    ["overview", "연차 오버뷰"],
-    ["sub", "대체휴가"],
-    ["special", "특별휴가"]
-  ];
-  tabRoot.innerHTML = tabs.map(([key, label]) => `
-    <button class="chip-btn${ui.leaveTab === key ? " active" : ""}" data-action="switch-leave-tab" data-leave-tab="${key}">${label}</button>
-  `).join("");
-}
-
-function switchLeaveTab(tab) {
-  ui.leaveTab = tab;
-  renderLeaveHub();
-}
-
-function renderLeaveOverviewTable(summaries) {
-  return `
-    <div class="kpi-grid">
-      ${kpiCard("white", "직원 수", `${summaries.length}`, "명", `${ui.currentYear}년 기준`)}
-      ${kpiCard("green", "총 생성", `${summaries.reduce((sum, item) => sum + item.total, 0).toFixed(1)}`, "일", "연차 기준")}
-      ${kpiCard("amber", "총 사용", `${summaries.reduce((sum, item) => sum + item.used, 0).toFixed(1)}`, "일", "연차 기준")}
-      ${kpiCard("primary", "총 잔여", `${summaries.reduce((sum, item) => sum + item.remain, 0).toFixed(1)}`, "일", "연차 기준")}
-    </div>
-    <div class="card">
-      <div class="table-wrap">
-        <table class="table">
-          <thead><tr><th>직원</th><th>부서</th><th>생성</th><th>사용</th><th>잔여</th><th>사용률</th><th>상태</th></tr></thead>
-          <tbody>
-            ${summaries.map((item) => `<tr>
-              <td>${employeeCell(item.employee)}</td>
-              <td>${item.employee.dept || "-"}</td>
-              <td>${item.total.toFixed(1)}</td>
-              <td>${item.used.toFixed(1)}</td>
-              <td>${item.remain.toFixed(1)}</td>
-              <td>${item.usagePercent}%</td>
-              <td><span class="tag ${item.alertLevel === "safe" ? "green" : "amber"}">${item.alertLabel}</span></td>
-            </tr>`).join("")}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
-}
-
-function renderLeaveSubTable() {
-  const rows = [...state.subLeaves].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-  return renderLeaveTxTable("대체휴가", rows);
-}
-
-function renderLeaveSpecialTable() {
-  const rows = [...state.specialLeaves].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-  return renderLeaveTxTable("특별휴가", rows);
-}
-
-function renderLeaveTxTable(title, rows) {
-  return `
-    <div class="card">
-      <div class="card-head"><div class="card-title">${title} 기록</div></div>
-      <div class="table-wrap">
-        <table class="table">
-          <thead><tr><th>일자</th><th>직원</th><th>구분</th><th>일수</th><th>사유</th><th>메모</th></tr></thead>
-          <tbody>
-            ${rows.length ? rows.map((item) => `<tr>
-              <td>${item.date || "-"}</td>
-              <td>${findEmployee(item.empId)?.name || "-"}</td>
-              <td>${item.action === "grant" ? "부여" : "사용"}</td>
-              <td>${Number(item.days || 0).toFixed(1)}</td>
-              <td>${item.reason || "-"}</td>
-              <td>${item.memo || item.evidence || "-"}</td>
-            </tr>`).join("") : `<tr><td colspan="6">${emptyState("기록이 없습니다.")}</td></tr>`}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
-}
-
-function renderLeaveHub() {
-  renderLeaveHubTabs();
-  const year = ui.currentYear;
-  const summaries = state.employees.map((employee) => employeeSummary(employee.id, year));
+  const monthPrefix = `${year}-${pad(new Date().getMonth() + 1)}`;
+  const totalSub = state.employees.reduce((sum, employee) => sum + subBalance(employee.id), 0);
+  const totalSpecialUsed = state.specialLeaves.filter((item) => item.action === "use").length;
+  const monthRecords = state.records.filter((record) => record.date.startsWith(monthPrefix)).length
+    + state.subLeaves.filter((item) => (item.date || "").startsWith(monthPrefix)).length
+    + state.specialLeaves.filter((item) => (item.date || "").startsWith(monthPrefix)).length;
+  document.getElementById("leave-hub-kpis").innerHTML = [
+    kpiCard("blue", "총 연차 잔여", summaries.reduce((sum, item) => sum + item.remain, 0).toFixed(1), "일", `${year}년 기준`),
+    kpiCard("purple", "총 대체휴가 잔여", totalSub.toFixed(1), "일", "전체 직원"),
+    kpiCard("green", "총 특별휴가 사용", `${totalSpecialUsed}`, "건", "누적"),
+    kpiCard("amber", "이번 달 전체 기록", `${monthRecords}`, "건", "연차/대체/특별")
+  ].join("");
   const root = document.getElementById("leave-hub-content");
   if (!root) return;
   if (ui.leaveTab === "overview") {
@@ -774,10 +751,35 @@ function renderHistory() {
 
   const records = state.records
     .filter((record) => record.empId === ui.selectedEmployeeId && record.date.startsWith(String(ui.currentYear)))
+    .filter((record) => !ui.histFilter.month || record.date.slice(5, 7) === ui.histFilter.month)
+    .filter((record) => !ui.histFilter.type || record.type === ui.histFilter.type)
+    .filter((record) => {
+      if (!ui.histFilter.search) return true;
+      return `${record.date} ${record.type} ${record.memo || ""}`.toLowerCase().includes(ui.histFilter.search);
+    })
     .sort((left, right) => right.date.localeCompare(left.date));
 
-  document.getElementById("history-count").textContent = `총 ${records.length}건`;
-  document.getElementById("history-body").innerHTML = records.length ? records.map(renderRecordRow).join("") : emptyState("해당 연도 기록이 없습니다.");
+  document.getElementById("history-count").textContent = `총 ${records.length}건 · ${ui.histFilter.month ? `${Number(ui.histFilter.month)}월` : "전체 월"} · ${ui.histFilter.type || "전체 유형"}`;
+  document.getElementById("history-body").innerHTML = records.length ? groupHistoryByMonth(records) : emptyState("필터 조건에 맞는 기록이 없습니다.");
+}
+
+function groupHistoryByMonth(records) {
+  const grouped = records.reduce((map, record) => {
+    const key = record.date.slice(0, 7);
+    const list = map.get(key) || [];
+    list.push(record);
+    map.set(key, list);
+    return map;
+  }, new Map());
+  return Array.from(grouped.entries()).map(([month, items]) => `
+    <div class="card minor-card">
+      <div class="card-head">
+        <div class="card-title">${month} 기록</div>
+        <div class="card-meta">${items.length}건</div>
+      </div>
+      <div class="stack-list">${items.map(renderRecordRow).join("")}</div>
+    </div>
+  `).join("");
 }
 
 function renderSettings() {
@@ -842,24 +844,50 @@ function renderSettings() {
 }
 
 function renderEmployees() {
-  document.getElementById("employee-grid").innerHTML = state.employees.map((employee) => {
+  const filtered = state.employees.filter((employee) => {
+    const summary = employeeSummary(employee.id, ui.managerYear);
+    const text = `${employee.name} ${employee.dept || ""} ${employee.role || ""}`.toLowerCase();
+    const matchSearch = !ui.empFilter.search || text.includes(ui.empFilter.search);
+    const matchDept = !ui.empFilter.dept || (employee.dept || "").toLowerCase().includes(ui.empFilter.dept);
+    const risk = summary.alertLevel === "urgent" || summary.alertLevel === "warning";
+    const matchRisk = ui.empFilter.risk === "all" || (ui.empFilter.risk === "risk" ? risk : !risk);
+    return matchSearch && matchDept && matchRisk;
+  });
+  document.getElementById("employee-grid").style.display = ui.empFilter.viewMode === "table" ? "none" : "grid";
+  document.getElementById("employee-table-card").style.display = ui.empFilter.viewMode === "table" ? "block" : "none";
+  document.getElementById("employee-grid").innerHTML = filtered.map((employee) => {
     const summary = employeeSummary(employee.id, ui.managerYear);
     const width = summary.total ? Math.min(100, Math.round((summary.used / summary.total) * 100)) : 0;
+    const latest = latestRecord(employee.id, ui.managerYear)?.date || "기록 없음";
     return `
       <div class="employee-card ${employee.id === ui.selectedEmployeeId ? "selected" : ""}">
         <div class="avatar" style="background:${employee.color}">${avatarContent(employee)}</div>
         <div class="employee-name">${employee.name}</div>
         <div class="employee-meta">${[employee.dept, employee.role].filter(Boolean).join(" · ") || "정보 없음"}</div>
         <div class="progress"><span style="width:${width}%"></span></div>
-        <div class="employee-meta">${summary.used} / ${summary.total}일 사용 · 잔여 ${summary.remain}일</div>
+        <div class="employee-meta">잔여 ${summary.remain}일 · 최근 휴가 ${latest}</div>
         <div class="card-actions">
           <button class="action-link" type="button" data-emp-open="${employee.id}">달력 보기</button>
           <button class="action-link" type="button" data-emp-edit="${employee.id}">수정</button>
-          <button class="action-link" type="button" data-emp-delete="${employee.id}">삭제</button>
         </div>
       </div>
     `;
   }).join("");
+  document.getElementById("employee-table-body").innerHTML = filtered.map((employee) => {
+    const summary = employeeSummary(employee.id, ui.managerYear);
+    const latest = latestRecord(employee.id, ui.managerYear)?.date || "기록 없음";
+    const tone = summary.alertLevel === "safe" ? "green" : summary.alertLevel === "warning" ? "amber" : "red";
+    return `
+      <tr>
+        <td>${employeeCell(employee)}</td>
+        <td>${[employee.dept, employee.role].filter(Boolean).join(" · ") || "-"}</td>
+        <td>${summary.remain.toFixed(1)}일</td>
+        <td>${latest}</td>
+        <td><span class="tag ${tone}">${summary.alertLabel}</span></td>
+        <td><button class="action-link" type="button" data-emp-open="${employee.id}">달력 보기</button> <button class="action-link" type="button" data-emp-edit="${employee.id}">수정</button></td>
+      </tr>
+    `;
+  }).join("") || `<tr><td colspan="6">${emptyState("조건에 맞는 직원이 없습니다.")}</td></tr>`;
 
   document.querySelectorAll("[data-emp-open]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -872,20 +900,21 @@ function renderEmployees() {
     button.addEventListener("click", () => openEmployeeModal(button.dataset.empEdit));
   });
 
-  document.querySelectorAll("[data-emp-delete]").forEach((button) => {
-    button.addEventListener("click", () => deleteEmployee(button.dataset.empDelete));
-  });
 }
 
 function renderSubLeaves() {
+  const expiringSoon = state.subLeaves.filter((item) => item.type === "grant" && item.expireDate && (new Date(item.expireDate).getTime() - Date.now()) < (1000 * 60 * 60 * 24 * 45)).length;
   document.getElementById("sub-kpis").innerHTML = [
-    kpiCard("white", "전체 잔여", totalSubBalance().toFixed(1), "일", "모든 직원 합산"),
     kpiCard("green", "총 부여", sumSubByType("grant").toFixed(1), "일", "누적"),
     kpiCard("red", "총 사용", sumSubByType("use").toFixed(1), "일", "누적"),
-    kpiCard("primary", "이력 건수", `${state.subLeaves.length}`, "건", "전체 직원")
+    kpiCard("primary", "총 잔여", totalSubBalance().toFixed(1), "일", "모든 직원 합산"),
+    kpiCard("amber", "만료 임박", `${expiringSoon}`, "건", "45일 이내")
   ].join("");
 
-  document.getElementById("sub-employee-tabs").innerHTML = state.employees.map((employee) => {
+  const query = document.getElementById("sub-employee-search").value.trim().toLowerCase();
+  document.getElementById("sub-employee-tabs").innerHTML = state.employees
+    .filter((employee) => !query || employee.name.toLowerCase().includes(query) || (employee.dept || "").toLowerCase().includes(query))
+    .map((employee) => {
     const balance = subBalance(employee.id);
     return `<button class="pill ${employee.id === ui.subEmployeeId ? "active" : ""}" type="button" data-sub-emp="${employee.id}">${employee.name} (${balance.toFixed(1)}일)</button>`;
   }).join("");
@@ -958,7 +987,7 @@ function renderSpecialLeaves() {
           <div class="row-title">${type}</div>
           <div class="row-desc">유형별 독립 잔여 일수</div>
         </div>
-        <span class="tag blue">${specialBalanceByReason(employee.id, type).toFixed(1)}일</span>
+        <span class="tag purple">${specialBalanceByReason(employee.id, type).toFixed(1)}일</span>
       </div>
     `;
   }).join("");
@@ -976,7 +1005,18 @@ function renderSpecialLeaves() {
 
 function renderOfficeView() {
   const year = ui.managerYear;
-  const rows = state.employees.map((employee) => {
+  const rows = state.employees.filter((employee) => {
+    const summary = employeeSummary(employee.id, year);
+    const special = specialBalance(employee.id);
+    const sub = subBalance(employee.id);
+    const matchDept = !ui.officeFilter.dept || (employee.dept || "").toLowerCase().includes(ui.officeFilter.dept);
+    const matchRole = !ui.officeFilter.role || (employee.role || "").toLowerCase().includes(ui.officeFilter.role);
+    const matchBalance = ui.officeFilter.balance === "all"
+      || (ui.officeFilter.balance === "leave" && summary.remain > 0)
+      || (ui.officeFilter.balance === "special" && special > 0)
+      || (ui.officeFilter.balance === "sub" && sub > 0);
+    return matchDept && matchRole && matchBalance;
+  }).map((employee) => {
     const summary = employeeSummary(employee.id, year);
     const special = specialBalance(employee.id);
     const sub = subBalance(employee.id);
@@ -989,17 +1029,17 @@ function renderOfficeView() {
         <td>${summary.remain.toFixed(1)}일</td>
         <td>${special.toFixed(1)}일</td>
         <td>${sub.toFixed(1)}일</td>
-        <td>${latest}</td>
+        <td>${latest === "-" ? "-" : `${latest} · 최근`}</td>
       </tr>
     `;
   });
-  document.getElementById("office-body").innerHTML = rows.join("") || `<tr><td colspan="7">${emptyState("직원 데이터가 없습니다.")}</td></tr>`;
+  document.getElementById("office-body").innerHTML = rows.join("") || `<tr><td colspan="7">${emptyState("필터 조건에 맞는 직원이 없습니다.")}</td></tr>`;
   document.getElementById("office-count").textContent = `총 ${state.employees.length}명`;
   document.getElementById("office-kpis").innerHTML = [
     kpiCard("white", "전체 직원", `${state.employees.length}`, "명", "사무실 기준"),
-    kpiCard("green", "연차 총 잔여", `${round(state.employees.reduce((sum, employee) => sum + employeeSummary(employee.id, year).remain, 0)).toFixed(1)}`, "일", `${year}년 기준`),
-    kpiCard("purple", "특별휴가 총 잔여", `${round(state.employees.reduce((sum, employee) => sum + specialBalance(employee.id), 0)).toFixed(1)}`, "일", "누적"),
-    kpiCard("amber", "대체휴가 총 잔여", `${totalSubBalance().toFixed(1)}`, "일", "누적")
+    kpiCard("green", "평균 연차 잔여", `${state.employees.length ? round(state.employees.reduce((sum, employee) => sum + employeeSummary(employee.id, year).remain, 0) / state.employees.length).toFixed(1) : "0.0"}`, "일", `${year}년 기준`),
+    kpiCard("purple", "특별휴가 보유", `${state.employees.filter((employee) => specialBalance(employee.id) > 0).length}`, "명", "잔여 > 0"),
+    kpiCard("amber", "대체휴가 보유", `${state.employees.filter((employee) => subBalance(employee.id) > 0).length}`, "명", "잔여 > 0")
   ].join("");
 }
 
@@ -1010,7 +1050,13 @@ function renderHrView() {
   });
 
   const admin = isCurrentAdmin();
-  document.getElementById("hr-body").innerHTML = state.employees.map((employee) => {
+  document.getElementById("hr-body").innerHTML = state.employees.filter((employee) => {
+    const record = getHrRecord(employee.id, ui.hrYear);
+    const text = `${employee.name} ${record.dept} ${record.role}`.toLowerCase();
+    const status = (record.status || "").toLowerCase();
+    return (!ui.hrFilter.search || text.includes(ui.hrFilter.search))
+      && (!ui.hrFilter.status || status.includes(ui.hrFilter.status));
+  }).map((employee) => {
     const record = getHrRecord(employee.id, ui.hrYear);
     const birthInput = admin
       ? `<input class="field" type="date" value="${employee.birthDate || ""}" data-hr-birth="${employee.id}">`
@@ -1099,6 +1145,86 @@ function renderHrView() {
 function renderDataHub() {
   const select = document.getElementById("category-select");
   if (!select.value) select.value = "employees";
+  document.getElementById("datahub-validate").textContent = `선택 카테고리: ${select.value}\n적용 범위: 해당 카테고리 데이터만 교체`;
+}
+
+function renderPayrollCenter() {
+  const select = document.getElementById("wage-calc-emp");
+  if (!select) return;
+  select.innerHTML = state.employees.map((employee) => `<option value="${employee.id}" ${employee.id === ui.wageCalcEmployeeId ? "selected" : ""}>${employee.name}</option>`).join("");
+  if (!ui.wageCalcEmployeeId && state.employees[0]) ui.wageCalcEmployeeId = state.employees[0].id;
+  loadWageCalcFromEmployee();
+}
+
+function loadWageCalcFromEmployee() {
+  const employee = employeeById(ui.wageCalcEmployeeId) || state.employees[0];
+  if (!employee) return;
+  const record = getHrRecord(employee.id, ui.hrYear);
+  document.getElementById("wage-calc-grade").value = record.payGrade || "";
+  document.getElementById("wage-calc-level").value = record.payLevel || "";
+  document.getElementById("wage-calc-step").value = record.payStep || 1;
+  document.getElementById("wage-calc-spouse").value = record.spouseCount || 0;
+  document.getElementById("wage-calc-child").value = record.childCount || 0;
+  document.getElementById("wage-calc-other").value = record.otherDependentCount || 0;
+  document.getElementById("wage-calc-adjust").value = record.adjustmentAllowance || 0;
+  document.getElementById("wage-calc-overtime").value = record.overtimeHours || 0;
+  document.getElementById("wage-calc-holiday").value = record.holidayOvertimeHours || 0;
+  document.getElementById("wage-calc-family").value = record.taxFamilyCount || 1;
+  document.getElementById("wage-calc-child-tax").value = record.taxChildCount || 0;
+  document.getElementById("wage-calc-tax-rate").value = String(record.taxRatePercent || 100);
+  const flags = record.allowanceFlags || { meal: true, manager: true, family: true, adjustment: true, overtime: true };
+  document.getElementById("wage-allow-meal").checked = flags.meal !== false;
+  document.getElementById("wage-allow-manager").checked = flags.manager !== false;
+  document.getElementById("wage-allow-family").checked = flags.family !== false;
+  document.getElementById("wage-allow-adjust").checked = flags.adjustment !== false;
+  document.getElementById("wage-allow-overtime").checked = flags.overtime !== false;
+  runWageCalculator(false);
+}
+
+function runWageCalculator(shouldSave = true) {
+  const empId = document.getElementById("wage-calc-emp").value;
+  const employee = employeeById(empId);
+  if (!employee) return;
+  const year = ui.hrYear;
+  const record = getHrRecord(empId, year);
+  record.payGrade = document.getElementById("wage-calc-grade").value.trim();
+  record.payLevel = document.getElementById("wage-calc-level").value.trim();
+  record.payStep = Number(document.getElementById("wage-calc-step").value || 1);
+  record.spouseCount = Number(document.getElementById("wage-calc-spouse").value || 0);
+  record.childCount = Number(document.getElementById("wage-calc-child").value || 0);
+  record.otherDependentCount = Number(document.getElementById("wage-calc-other").value || 0);
+  record.adjustmentAllowance = Number(document.getElementById("wage-calc-adjust").value || 0);
+  record.overtimeHours = Number(document.getElementById("wage-calc-overtime").value || 0);
+  record.holidayOvertimeHours = Number(document.getElementById("wage-calc-holiday").value || 0);
+  record.taxFamilyCount = Number(document.getElementById("wage-calc-family").value || 1);
+  record.taxChildCount = Number(document.getElementById("wage-calc-child-tax").value || 0);
+  record.taxRatePercent = Number(document.getElementById("wage-calc-tax-rate").value || 100);
+  record.allowanceFlags = {
+    meal: document.getElementById("wage-allow-meal").checked,
+    manager: document.getElementById("wage-allow-manager").checked,
+    family: document.getElementById("wage-allow-family").checked,
+    adjustment: document.getElementById("wage-allow-adjust").checked,
+    overtime: document.getElementById("wage-allow-overtime").checked
+  };
+  record.monthlySalary = calculatePayByGrade(record.payGrade, record.payLevel, record.payStep);
+  const allowance = calculateAllowancePackage(record, record.monthlySalary, record.allowanceFlags);
+  const gross = record.monthlySalary + allowance.totalAllowance;
+  const tax = calculateWithholdingTax(record.monthlySalary, record.taxFamilyCount, record.taxChildCount, record.taxRatePercent);
+  const insurance = Number(record.socialInsurance || 0);
+  const net = gross - tax - insurance;
+  document.getElementById("wage-calc-result").innerHTML = `
+    <div class="status-row"><span>직원</span><strong>${employee.name}</strong></div>
+    <div class="status-row"><span>기본급</span><strong>${Math.round(record.monthlySalary).toLocaleString("ko-KR")}원</strong></div>
+    <div class="status-row"><span>제수당 합계</span><strong>${Math.round(allowance.totalAllowance).toLocaleString("ko-KR")}원</strong></div>
+    <div class="status-row"><span>통상임금</span><strong>${Math.round(allowance.ordinaryWage).toLocaleString("ko-KR")}원</strong></div>
+    <div class="status-row"><span>원천세(자동)</span><strong>${Math.round(tax).toLocaleString("ko-KR")}원</strong></div>
+    <div class="status-row"><span>지방소득세(10%)</span><strong>${Math.round(tax * 0.1).toLocaleString("ko-KR")}원</strong></div>
+    <div class="status-row"><span>4대보험</span><strong>${Math.round(insurance).toLocaleString("ko-KR")}원</strong></div>
+    <div class="status-row"><span>예상 실수령</span><strong>${Math.round(net - (tax * 0.1)).toLocaleString("ko-KR")}원</strong></div>
+    <div class="hint-box">계산식: 기본급 + 제수당 - 원천세 - 지방소득세(원천세의10%) - 4대보험. 간이세액표 업로드 시 lookup 적용.</div>
+  `;
+  state.hrRecords[`${empId}_${year}`] = record;
+  if (shouldSave) touchState("임금 자동계산 실행");
 }
 
 function renderPayrollCenter() {
@@ -1181,6 +1307,12 @@ function runWageCalculator(shouldSave = true) {
 }
 
 function renderErpView() {
+  document.getElementById("erp-module-kpis").innerHTML = [
+    kpiCard("blue", "인사기본", "4", "모듈", "기본 관리"),
+    kpiCard("green", "근태/휴가", "3", "모듈", "운영 관리"),
+    kpiCard("amber", "급여/세무", "4", "모듈", "정산 관리"),
+    kpiCard("purple", "컴플라이언스", "4", "모듈", "리스크 관리")
+  ].join("");
   const sections = {
     hr: [
       {
@@ -1653,11 +1785,36 @@ function renderManager() {
       || (ui.managerFilter.risk === "safe" && !risk);
     const min = Number(ui.managerFilter.usageMin || 0);
     const max = Number(ui.managerFilter.usageMax || 100);
+    const remainMin = Number(ui.managerFilter.remainMin || -999);
     const matchUsage = summary.usagePercent >= min && summary.usagePercent <= max;
-    return matchName && matchDept && matchRisk && matchUsage;
+    const matchRemain = summary.remain >= remainMin;
+    return matchName && matchDept && matchRisk && matchUsage && matchRemain;
   });
+  const sorted = [...filtered];
+  const sortMode = ui.managerFilter.sort || "name";
+  if (sortMode === "risk") {
+    const order = { urgent: 0, warning: 1, safe: 2 };
+    sorted.sort((a, b) => order[employeeSummary(a.id, ui.managerYear).alertLevel] - order[employeeSummary(b.id, ui.managerYear).alertLevel]);
+  } else if (sortMode === "remainAsc") {
+    sorted.sort((a, b) => employeeSummary(a.id, ui.managerYear).remain - employeeSummary(b.id, ui.managerYear).remain);
+  } else if (sortMode === "remainDesc") {
+    sorted.sort((a, b) => employeeSummary(b.id, ui.managerYear).remain - employeeSummary(a.id, ui.managerYear).remain);
+  } else {
+    sorted.sort((a, b) => a.name.localeCompare(b.name, "ko"));
+  }
+  const riskCount = sorted.filter((employee) => {
+    const level = employeeSummary(employee.id, ui.managerYear).alertLevel;
+    return level === "urgent" || level === "warning";
+  }).length;
+  const avgRemain = sorted.length ? round(sorted.reduce((sum, employee) => sum + employeeSummary(employee.id, ui.managerYear).remain, 0) / sorted.length) : 0;
+  document.getElementById("manager-summary").innerHTML = [
+    kpiCard("white", "검색 결과", `${sorted.length}`, "명", "필터 기준"),
+    kpiCard("red", "위험 인원", `${riskCount}`, "명", "주의+긴급"),
+    kpiCard("green", "평균 잔여", `${avgRemain.toFixed(1)}`, "일", "결과 기준"),
+    kpiCard("blue", "정렬 기준", sortMode, "", "현재 설정")
+  ].join("");
 
-  document.getElementById("manager-body").innerHTML = filtered.map((employee) => {
+  document.getElementById("manager-body").innerHTML = sorted.map((employee) => {
     const summary = employeeSummary(employee.id, ui.managerYear);
     const latest = latestRecord(employee.id, ui.managerYear)?.date || "없음";
     return `
@@ -1808,7 +1965,7 @@ function renderRecordRow(record) {
     <div class="row-item">
       <div class="row-main">
         <div class="row-title">${record.date} · ${record.type}</div>
-        <div class="row-desc">${record.memo || "메모 없음"}</div>
+        <div class="row-desc">사용량 ${leaveDelta(record.type)}일 · ${record.memo || "메모 없음"} · 등록 ${record.createdAt || record.updatedAt || "-"}</div>
       </div>
       <div class="button-row">
         <span class="tag ${record.type === "연차" ? "blue" : "amber"}">${leaveDelta(record.type)}일</span>

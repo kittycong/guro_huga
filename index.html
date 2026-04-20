@@ -135,6 +135,14 @@
             <button class="btn primary" data-action="open-record-modal">연차 기록 추가</button>
           </div>
         </div>
+        <div id="leave-hub-kpis" class="kpi-grid"></div>
+        <div class="card">
+          <div class="card-body filter-grid leave-quick-actions">
+            <button class="btn primary" data-action="open-record-modal">연차 기록 추가</button>
+            <button class="btn ghost" data-action="open-subleave-modal">대체휴가 등록</button>
+            <button class="btn ghost" data-action="open-specialleave-modal">특별휴가 등록</button>
+          </div>
+        </div>
         <div id="leave-hub-tabs" class="chip-row"></div>
         <div id="leave-hub-content" class="stack-list"></div>
       </section>
@@ -196,11 +204,32 @@
             <button class="btn primary" data-action="open-record-modal">휴가 기록 추가</button>
           </div>
         </div>
+        <div class="card">
+          <div class="card-body">
+            <div class="filter-grid">
+              <select id="hist-month" class="field">
+                <option value="">전체 월</option>
+                <option value="01">1월</option><option value="02">2월</option><option value="03">3월</option><option value="04">4월</option>
+                <option value="05">5월</option><option value="06">6월</option><option value="07">7월</option><option value="08">8월</option>
+                <option value="09">9월</option><option value="10">10월</option><option value="11">11월</option><option value="12">12월</option>
+              </select>
+              <select id="hist-type" class="field">
+                <option value="">전체 유형</option>
+                <option value="연차">연차</option>
+                <option value="반차(오전)">반차(오전)</option>
+                <option value="반차(오후)">반차(오후)</option>
+                <option value="반반차(오전)">반반차(오전)</option>
+                <option value="반반차(오후)">반반차(오후)</option>
+              </select>
+              <input id="hist-search" class="field" type="text" placeholder="메모/유형 검색">
+            </div>
+          </div>
+        </div>
         <div class="year-tabs" id="history-year-tabs"></div>
         <div class="card">
           <div class="card-head">
             <div class="card-title">전체 기록</div>
-            <div id="history-count" class="card-meta"></div>
+            <div id="history-count" class="card-meta">필터 기준</div>
           </div>
           <div id="history-body" class="stack-list"></div>
         </div>
@@ -359,7 +388,32 @@
             <button class="btn primary" data-action="open-employee-modal">직원 추가</button>
           </div>
         </div>
+        <div class="card">
+          <div class="card-body">
+            <div class="filter-grid">
+              <input id="emp-search" class="field" type="text" placeholder="이름 검색">
+              <input id="emp-dept" class="field" type="text" placeholder="부서 검색">
+              <select id="emp-risk" class="field">
+                <option value="all">위험여부 전체</option>
+                <option value="risk">위험/주의</option>
+                <option value="safe">안정</option>
+              </select>
+              <select id="emp-view-mode" class="field">
+                <option value="card">카드 보기</option>
+                <option value="table">표 보기</option>
+              </select>
+            </div>
+          </div>
+        </div>
         <div id="employee-grid" class="employee-grid"></div>
+        <div class="card" id="employee-table-card" style="display:none;">
+          <div class="table-wrap">
+            <table class="table">
+              <thead><tr><th>직원</th><th>부서/직책</th><th>잔여</th><th>최근 휴가</th><th>상태</th><th>관리</th></tr></thead>
+              <tbody id="employee-table-body"></tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       <section class="view" id="view-sub">
@@ -380,7 +434,10 @@
           <div class="card-head">
             <div class="card-title">직원 선택</div>
           </div>
-          <div id="sub-employee-tabs" class="pill-list"></div>
+          <div class="card-body stacked-fields">
+            <input id="sub-employee-search" class="field" type="text" placeholder="직원 검색">
+            <div id="sub-employee-tabs" class="pill-list"></div>
+          </div>
         </div>
 
         <div class="layout-two">
@@ -409,6 +466,7 @@
             <div class="page-sub">경조사, 병가, 포상휴가, 기타휴가를 독립 잔여일수로 관리합니다.</div>
           </div>
           <div class="head-actions">
+            <button class="btn ghost" data-action="open-specialleave-modal">퀵 등록(최근 유형)</button>
             <button class="btn primary" data-action="open-specialleave-modal">특별휴가 등록</button>
           </div>
         </div>
@@ -446,6 +504,20 @@
             <div class="page-sub">부서/직책/연차/특별휴가/대체휴가를 한 번에 보는 운영 현황 화면입니다.</div>
           </div>
         </div>
+        <div class="card">
+          <div class="card-body">
+            <div class="filter-grid">
+              <input id="office-dept-filter" class="field" type="text" placeholder="부서 필터">
+              <input id="office-role-filter" class="field" type="text" placeholder="직책 필터">
+              <select id="office-balance-filter" class="field">
+                <option value="all">휴가 보유 전체</option>
+                <option value="leave">연차 잔여 있음</option>
+                <option value="special">특별휴가 잔여 있음</option>
+                <option value="sub">대체휴가 잔여 있음</option>
+              </select>
+            </div>
+          </div>
+        </div>
         <div id="office-kpis" class="kpi-grid four"></div>
         <div class="card">
           <div class="card-head">
@@ -480,6 +552,20 @@
           <div class="head-actions">
             <button class="btn ghost" data-action="import-hr-excel">인사정보 엑셀 업로드</button>
             <button class="btn primary" data-action="export-hr-excel">인사정보 엑셀 다운로드</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-body">
+            <div class="filter-grid">
+              <input id="hr-search" class="field" type="text" placeholder="직원/부서 검색">
+              <select id="hr-status-filter" class="field">
+                <option value="">상태 전체</option>
+                <option value="재직">재직</option>
+                <option value="휴직">휴직</option>
+                <option value="퇴사">퇴사</option>
+              </select>
+              <div class="hint-box">변경 상태: 입력 후 반드시 하단의 저장 버튼을 눌러 반영하세요.</div>
+            </div>
           </div>
         </div>
         <div class="year-tabs" id="hr-year-tabs"></div>
@@ -670,6 +756,21 @@
         </div>
         <div class="card">
           <div class="card-head">
+            <div class="card-title">역할 프리셋</div>
+            <div class="card-meta">기본 템플릿 안내</div>
+          </div>
+          <div class="card-body">
+            <div class="pill-list">
+              <span class="pill">일반 사용자</span>
+              <span class="pill">팀장</span>
+              <span class="pill">관리자</span>
+              <span class="pill">시스템 관리자</span>
+            </div>
+            <div class="hint-box">세부 권한은 아래 표에서 직접 조정합니다. 저장 시 감사 로그에 변경 이력이 남습니다.</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">
             <div class="card-title">직원별 권한 설정</div>
           </div>
           <div class="table-wrap">
@@ -726,9 +827,17 @@
               </select>
               <input id="manager-usage-min" class="field" type="number" min="0" max="100" placeholder="사용률 최소%">
               <input id="manager-usage-max" class="field" type="number" min="0" max="100" placeholder="사용률 최대%">
+              <input id="manager-remain-min" class="field" type="number" min="-100" max="100" placeholder="잔여 최소">
+              <select id="manager-sort" class="field">
+                <option value="name">정렬: 이름</option>
+                <option value="risk">정렬: 위험 우선</option>
+                <option value="remainAsc">정렬: 잔여 오름차순</option>
+                <option value="remainDesc">정렬: 잔여 내림차순</option>
+              </select>
             </div>
           </div>
         </div>
+        <div id="manager-summary" class="kpi-grid"></div>
         <div class="card">
           <div class="table-wrap">
             <table class="table">
@@ -897,6 +1006,7 @@
         </div>
         <div class="card">
           <div class="card-body stacked-fields">
+            <div class="section-title">1) 대상 카테고리 선택</div>
             <label class="field-label" for="category-select">카테고리 선택</label>
             <select id="category-select" class="field">
               <option value="employees">직원 목록</option>
@@ -906,7 +1016,11 @@
               <option value="hrRecords">인사/급여/세무</option>
               <option value="perms">권한 관리</option>
             </select>
-            <div class="hint-box">업로드 시 선택한 카테고리 데이터만 교체합니다.</div>
+            <div class="section-title">2) 파일 검증</div>
+            <div class="hint-box">업로드 전 열 구성과 행 수를 확인하세요. 형식이 다르면 일부 데이터가 누락될 수 있습니다.</div>
+            <div id="datahub-validate" class="log-box">검증 정보가 여기에 표시됩니다.</div>
+            <div class="section-title">3) 적용 전 확인</div>
+            <div class="hint-box">적용 즉시 기존 데이터가 교체됩니다. 적용 전 백업 다운로드를 권장합니다.</div>
           </div>
         </div>
       </section>
@@ -922,6 +1036,7 @@
             <button class="btn primary" data-action="open-erp-menu" data-view="hr">인사정보 바로가기</button>
           </div>
         </div>
+        <div id="erp-module-kpis" class="kpi-grid four"></div>
         <div class="card">
           <div class="card-head">
             <div>
@@ -929,7 +1044,8 @@
               <div class="card-meta">부서-상위부서-팀장 구조를 저장하고 인원현황을 바로 확인합니다.</div>
             </div>
           </div>
-          <div class="card-body stacked-fields">
+          <div class="card-body erp-two-panel">
+            <div class="stacked-fields">
             <div class="filter-grid">
               <input id="org-unit-name" class="field" type="text" placeholder="부서명 (예: 사례관리팀)">
               <select id="org-parent-id" class="field">
@@ -944,6 +1060,7 @@
               <button class="btn primary small" data-action="save-org-unit">부서 저장</button>
               <button class="btn ghost small" data-action="reset-org-unit-form">입력 초기화</button>
             </div>
+            <div class="section-title">자동구성 단계</div>
             <div id="org-unit-list" class="stack-list compact"></div>
             <label class="field-label" for="org-build-mode">자동구성 기준</label>
             <select id="org-build-mode" class="field">
@@ -951,8 +1068,11 @@
               <option value="slash">부서 경로(/) 분리</option>
               <option value="arrow">부서 경로(&gt;) 분리</option>
             </select>
+            </div>
+            <div class="stacked-fields">
             <div class="card-title">조직도 트리</div>
             <div id="org-tree-view" class="stack-list compact"></div>
+            </div>
           </div>
         </div>
         <div class="layout-two">
@@ -997,6 +1117,7 @@
               <div class="card-meta">직급/급수/호봉 + 수당 + 공제</div>
             </div>
             <div class="card-body stacked-fields">
+              <div class="section-title">직원 / 직급</div>
               <label class="field-label" for="wage-calc-emp">직원 선택</label>
               <select id="wage-calc-emp" class="field"></select>
               <label class="field-label" for="wage-calc-grade">직군</label>
@@ -1005,6 +1126,7 @@
               <input id="wage-calc-level" class="field" type="text" placeholder="예: 3급">
               <label class="field-label" for="wage-calc-step">호봉</label>
               <input id="wage-calc-step" class="field" type="number" min="1" step="1">
+              <div class="section-title">가족 / 세액</div>
               <label class="field-label" for="wage-calc-spouse">배우자 수</label>
               <input id="wage-calc-spouse" class="field" type="number" min="0" step="1" value="0">
               <label class="field-label" for="wage-calc-child">자녀 수</label>
@@ -1028,6 +1150,7 @@
                 <option value="120">120%</option>
               </select>
               <div class="hint-box">간이세액표 업로드 시 lookup 결과를 우선 적용하고, 미업로드 시 기존 비율 계산으로 fallback 됩니다.</div>
+              <div class="section-title">수당 반영 옵션</div>
               <label class="checkbox-row"><input id="wage-allow-meal" type="checkbox" checked><span>정액급식비 반영</span></label>
               <label class="checkbox-row"><input id="wage-allow-manager" type="checkbox" checked><span>관리자수당 반영</span></label>
               <label class="checkbox-row"><input id="wage-allow-family" type="checkbox" checked><span>가족수당 반영</span></label>
@@ -1035,7 +1158,7 @@
               <label class="checkbox-row"><input id="wage-allow-overtime" type="checkbox" checked><span>시간외수당 반영</span></label>
             </div>
           </div>
-          <div class="card">
+          <div class="card sticky-result">
             <div class="card-head">
               <div class="card-title">자동 계산 결과</div>
             </div>
