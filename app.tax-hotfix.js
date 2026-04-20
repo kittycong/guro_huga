@@ -1,4 +1,76 @@
 (function () {
+  function parseStateTimestamp(value) {
+    if (!value || typeof value !== "string") return 0;
+    const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(value)
+      ? value.replace(" ", "T")
+      : value;
+    const parsed = Date.parse(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function scoreStateCompleteness(data) {
+    if (!data || typeof data !== "object") return -1;
+    const settings = data.settings || {};
+    let score = 0;
+    score += (data.employees?.length || 0) * 20;
+    score += (data.records?.length || 0) * 16;
+    score += (data.subLeaves?.length || 0) * 12;
+    score += (data.specialLeaves?.length || 0) * 12;
+    score += Object.keys(data.totals || {}).length * 8;
+    score += Object.keys(data.hrRecords || {}).length * 10;
+    score += (data.orgUnits?.length || 0) * 8;
+    score += Math.min(data.auditLogs?.length || 0, 20);
+    score += settings.simpleTaxTable?.length ? 40 : 0;
+    score += settings.payGradeTable?.length ? 24 : 0;
+    score += settings.allowanceRules ? 12 : 0;
+    score += settings.welfareStandard ? 12 : 0;
+    score += settings.employmentRules ? 8 : 0;
+    return score;
+  }
+
+  function selectPreferredState(draft, remote) {
+    if (!draft && !remote) {
+      return { state, tone: "idle", label: "대기", detail: "불러올 데이터가 없습니다." };
+    }
+    if (!draft && remote) {
+      return { state: remote, tone: "success", label: "공유", detail: "공유 JSON 데이터를 불러왔습니다." };
+    }
+    if (draft && !remote) {
+      return { state: draft, tone: "idle", label: "초안", detail: "공유 데이터 대신 로컬 초안을 유지했습니다." };
+    }
+
+    const draftTime = parseStateTimestamp(draft.updatedAt);
+    const remoteTime = parseStateTimestamp(remote.updatedAt);
+    const draftScore = scoreStateCompleteness(draft);
+    const remoteScore = scoreStateCompleteness(remote);
+
+    if (draftTime > remoteTime + 60000) {
+      return {
+        state: draft,
+        tone: "idle",
+        label: "초안 유지",
+        detail: "로컬 초안이 더 최신이라 공유 JSON 대신 유지했습니다."
+      };
+    }
+    if (remoteTime > draftTime + 60000 && remoteScore + 10 >= draftScore) {
+      return {
+        state: remote,
+        tone: "success",
+        label: "공유",
+        detail: "공유 JSON이 더 최신이라 로컬 초안 대신 적용했습니다."
+      };
+    }
+    if (draftScore > remoteScore) {
+      return {
+        state: draft,
+        tone: "idle",
+        label: "초안 유지",
+        detail: "공유 JSON보다 로컬 초안이 더 충실해서 초안을 유지했습니다."
+      };
+    }
+    return { state: remote, tone: "success", label: "공유", detail: "공유 JSON 데이터를 불러왔습니다." };
+  }
+
   function deriveTaxFamilyCount(record) {
     return Math.max(1, 1 + Number(record.spouseCount || 0) + Number(record.childCount || 0) + Number(record.otherDependentCount || 0));
   }
@@ -54,6 +126,50 @@
   window.calculateLocalIncomeTax = calculateLocalIncomeTax;
   window.deriveTaxFamilyCount = deriveTaxFamilyCount;
   window.deriveTaxChildCount = deriveTaxChildCount;
+
+  window.loadInitialState = loadInitialState = async function loadInitialStateRecoveryHotfix() {
+    const draft = readJsonStorage(STORAGE_KEYS.draft);
+    if (draft) {
+      state = draft;
+      lastLoadedAt = formatDateTime(new Date());
+      setSyncStatus("idle", "초안", "로컬 초안을 불러왔습니다.");
+    }
+
+    try {
+      const response = await fetch(`./data/app-data.json?ts=${Date.now()}`, { cache: "no-store" });
+      if (!response.ok) throw new Error(`공유 파일 로딩 실패 (${response.status})`);
+      const remote = await response.json();
+      const selection = selectPreferredState(draft, remote);
+      state = selection.state;
+      lastLoadedAt = formatDateTime(new Date());
+      setSyncStatus(selection.tone, selection.label, selection.detail);
+    } catch (error) {
+      if (!draft) {
+        setSyncStatus("error", "오류", error.message);
+      }
+    }
+
+    await refreshGithubSha();
+  };
+
+  window.reloadFromRemote = reloadFromRemote = async function reloadFromRemoteRecoveryHotfix() {
+    try {
+      const draft = readJsonStorage(STORAGE_KEYS.draft);
+      const response = await fetch(`./data/app-data.json?ts=${Date.now()}`, { cache: "no-store" });
+      if (!response.ok) throw new Error(`공유 데이터 다시 읽기 실패 (${response.status})`);
+      const remote = await response.json();
+      const selection = selectPreferredState(draft, remote);
+      state = selection.state;
+      normalizeState();
+      initializeSelections();
+      lastLoadedAt = formatDateTime(new Date());
+      setSyncStatus(selection.tone, selection.label, selection.detail);
+      renderAll();
+    } catch (error) {
+      setSyncStatus("error", "실패", error.message);
+      renderSyncStatus();
+    }
+  };
 
   window.runWageCalculator = runWageCalculator = function runWageCalculatorHotfix(shouldSave = true) {
     const empId = document.getElementById("wage-calc-emp").value;
