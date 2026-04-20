@@ -126,6 +126,22 @@
         </div>
       </section>
 
+      <section class="view" id="view-leave">
+        <div class="page-head">
+          <div>
+            <div class="page-title">휴가 통합 메뉴</div>
+            <div class="page-sub">연차 오버뷰, 대체휴가, 특별휴가를 한 화면에서 탭으로 전환합니다.</div>
+          </div>
+          <div class="head-actions">
+            <button class="btn ghost" data-action="open-subleave-modal">대체휴가 등록</button>
+            <button class="btn ghost" data-action="open-specialleave-modal">특별휴가 등록</button>
+            <button class="btn primary" data-action="open-record-modal">연차 기록 추가</button>
+          </div>
+        </div>
+        <div id="leave-hub-tabs" class="chip-row"></div>
+        <div id="leave-hub-content" class="stack-list"></div>
+      </section>
+
       <section class="view" id="view-cal">
         <div class="page-head">
           <div>
@@ -268,7 +284,10 @@
 
               <label class="field-label" for="leave-unit-price">1일 연차 정산 단가 직접 입력</label>
               <input id="leave-unit-price" class="field" type="number" min="0" step="1000">
+              <label class="field-label" for="average-daily-wage">1일 평균임금(선택)</label>
+              <input id="average-daily-wage" class="field" type="number" min="0" step="1000">
 
+              <div class="hint-box">노동 계산기 방식 반영: 만1년 미만 월차(최대11일), 만1년 이상 15일 + 2년마다 1일(최대25일), 퇴사 시점까지 발생분 기준.</div>
               <div id="settlement-summary" class="hint-box"></div>
             </div>
           </div>
@@ -490,6 +509,14 @@
                     <th>수동세율(%)</th>
                     <th>원천세</th>
                     <th>4대보험(월)</th>
+                    <th>배우자</th>
+                    <th>자녀</th>
+                    <th>기타부양</th>
+                    <th>조정수당</th>
+                    <th>시간외(월h)</th>
+                    <th>휴일8h초과(h)</th>
+                    <th>제수당합계</th>
+                    <th>통상임금</th>
                     <th>퇴직금 추정</th>
                     <th>의무교육 이수</th>
                   </tr>
@@ -510,6 +537,8 @@
           </div>
           <div class="card-body stacked-fields">
             <div class="button-row">
+              <button class="btn ghost small" data-action="apply-seoul-pay-template">2026 서울시 템플릿 적용</button>
+              <button class="btn ghost small" data-action="import-pay-grade-excel">임금테이블 엑셀 업로드</button>
               <button class="btn ghost small" data-action="add-pay-grade-row">테이블 행 추가</button>
               <button class="btn primary small" data-action="save-pay-grade-table">임금 테이블 저장</button>
             </div>
@@ -532,6 +561,26 @@
             <label class="field-label" for="local-tax-rate">지방소득세 가산비율(%)</label>
             <input id="local-tax-rate" class="field" type="number" min="0" max="100" step="0.01">
             <div class="hint-box">자동모드 세금 = 월기본급 × (홈택스 세율 + 홈택스 세율×지방소득세 가산비율)</div>
+            <hr>
+            <div class="card-title">제수당 지급기준</div>
+            <label class="field-label" for="allow-meal">정액급식비(월)</label>
+            <input id="allow-meal" class="field" type="number" min="0" step="1000">
+            <label class="field-label" for="allow-manager">관리자수당(월)</label>
+            <input id="allow-manager" class="field" type="number" min="0" step="1000">
+            <label class="field-label" for="allow-spouse">배우자수당</label>
+            <input id="allow-spouse" class="field" type="number" min="0" step="1000">
+            <label class="field-label" for="allow-child1">자녀수당(첫째)</label>
+            <input id="allow-child1" class="field" type="number" min="0" step="1000">
+            <label class="field-label" for="allow-child2">자녀수당(둘째)</label>
+            <input id="allow-child2" class="field" type="number" min="0" step="1000">
+            <label class="field-label" for="allow-child3">자녀수당(셋째 이상 1인당)</label>
+            <input id="allow-child3" class="field" type="number" min="0" step="1000">
+            <label class="field-label" for="allow-other">기타부양수당(1인당)</label>
+            <input id="allow-other" class="field" type="number" min="0" step="1000">
+            <label class="field-label" for="allow-adjustment">조정수당(기본값)</label>
+            <input id="allow-adjustment" class="field" type="number" min="0" step="1000">
+            <div class="hint-box">통상임금 = 기본급 + 정액급식비 + 조정수당 + (명절휴가비 120% ÷ 12). 시간외수당은 통상시급(통상임금 ÷ 209)으로 계산.</div>
+            <div id="allowance-preview" class="log-box"></div>
           </div>
         </div>
 
@@ -585,6 +634,7 @@
                   <th>직원</th>
                   <th>권한등급</th>
                   <th>대시보드</th>
+                  <th>휴가통합</th>
                   <th>달력</th>
                   <th>내역</th>
                   <th>설정</th>
@@ -594,6 +644,7 @@
                   <th>특별휴가</th>
                   <th>사무실현황</th>
                   <th>인사정보</th>
+                  <th>인사급여</th>
                   <th>데이터허브</th>
                   <th>ERP구조</th>
                   <th>동기화</th>
@@ -800,6 +851,43 @@
             <div class="page-title">ERP형 확장 구조</div>
             <div class="page-sub">인사/근태/급여/노무/리스크 모듈을 단계적으로 운영합니다.</div>
           </div>
+          <div class="head-actions">
+            <button class="btn ghost" data-action="auto-build-org">조직도 자동구성</button>
+            <button class="btn primary" data-action="open-erp-menu" data-view="hr">인사정보 바로가기</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <div class="card-title">조직도 / 부서 운영</div>
+              <div class="card-meta">부서-상위부서-팀장 구조를 저장하고 인원현황을 바로 확인합니다.</div>
+            </div>
+          </div>
+          <div class="card-body stacked-fields">
+            <div class="filter-grid">
+              <input id="org-unit-name" class="field" type="text" placeholder="부서명 (예: 사례관리팀)">
+              <select id="org-parent-id" class="field">
+                <option value="">상위부서(없음)</option>
+              </select>
+              <select id="org-leader-id" class="field">
+                <option value="">팀장 선택</option>
+              </select>
+              <input id="org-unit-note" class="field" type="text" placeholder="메모 (예: 야간 당직 운영)">
+            </div>
+            <div class="button-row">
+              <button class="btn primary small" data-action="save-org-unit">부서 저장</button>
+              <button class="btn ghost small" data-action="reset-org-unit-form">입력 초기화</button>
+            </div>
+            <div id="org-unit-list" class="stack-list compact"></div>
+            <label class="field-label" for="org-build-mode">자동구성 기준</label>
+            <select id="org-build-mode" class="field">
+              <option value="exact">부서명 그대로</option>
+              <option value="slash">부서 경로(/) 분리</option>
+              <option value="arrow">부서 경로(&gt;) 분리</option>
+            </select>
+            <div class="card-title">조직도 트리</div>
+            <div id="org-tree-view" class="stack-list compact"></div>
+          </div>
         </div>
         <div class="layout-two">
           <div class="card">
@@ -819,6 +907,73 @@
           <div class="card">
             <div class="card-head"><div class="card-title">노무·컴플라이언스 / 리스크·감사</div></div>
             <div class="stack-list compact" id="erp-compliance"></div>
+          </div>
+        </div>
+        <input id="org-edit-id" type="hidden">
+      </section>
+
+      <section class="view" id="view-payroll">
+        <div class="page-head">
+          <div>
+            <div class="page-title">인사정보 및 급여관리</div>
+            <div class="page-sub">직급/호봉 임금테이블, 제수당, 공제를 통합 계산합니다.</div>
+          </div>
+          <div class="head-actions">
+            <button class="btn ghost" data-action="import-tax-table-excel">간이세액표 업로드</button>
+            <button class="btn ghost" data-action="open-erp-menu" data-view="hr">인사정보 등록 열기</button>
+            <button class="btn primary" data-action="run-wage-calculator">임금 자동계산</button>
+          </div>
+        </div>
+        <div class="layout-two">
+          <div class="card">
+            <div class="card-head">
+              <div class="card-title">통합 임금 계산기</div>
+              <div class="card-meta">직급/급수/호봉 + 수당 + 공제</div>
+            </div>
+            <div class="card-body stacked-fields">
+              <label class="field-label" for="wage-calc-emp">직원 선택</label>
+              <select id="wage-calc-emp" class="field"></select>
+              <label class="field-label" for="wage-calc-grade">직군</label>
+              <input id="wage-calc-grade" class="field" type="text" placeholder="예: 일반직/관리직/기능직">
+              <label class="field-label" for="wage-calc-level">급수</label>
+              <input id="wage-calc-level" class="field" type="text" placeholder="예: 3급">
+              <label class="field-label" for="wage-calc-step">호봉</label>
+              <input id="wage-calc-step" class="field" type="number" min="1" step="1">
+              <label class="field-label" for="wage-calc-spouse">배우자 수</label>
+              <input id="wage-calc-spouse" class="field" type="number" min="0" step="1" value="0">
+              <label class="field-label" for="wage-calc-child">자녀 수</label>
+              <input id="wage-calc-child" class="field" type="number" min="0" step="1" value="0">
+              <label class="field-label" for="wage-calc-other">기타 부양가족 수</label>
+              <input id="wage-calc-other" class="field" type="number" min="0" step="1" value="0">
+              <label class="field-label" for="wage-calc-adjust">조정수당</label>
+              <input id="wage-calc-adjust" class="field" type="number" min="0" step="1000" value="0">
+              <label class="field-label" for="wage-calc-overtime">시간외근무(월)</label>
+              <input id="wage-calc-overtime" class="field" type="number" min="0" step="1" value="0">
+              <label class="field-label" for="wage-calc-holiday">휴일8시간초과(월)</label>
+              <input id="wage-calc-holiday" class="field" type="number" min="0" step="1" value="0">
+              <label class="field-label" for="wage-calc-family">부양가족수(본인포함)</label>
+              <input id="wage-calc-family" class="field" type="number" min="1" step="1" value="1">
+              <label class="field-label" for="wage-calc-child-tax">8~20세 자녀수(세액표)</label>
+              <input id="wage-calc-child-tax" class="field" type="number" min="0" step="1" value="0">
+              <label class="field-label" for="wage-calc-tax-rate">원천징수 반영률</label>
+              <select id="wage-calc-tax-rate" class="field">
+                <option value="100">100%</option>
+                <option value="80">80%</option>
+                <option value="120">120%</option>
+              </select>
+              <div class="hint-box">간이세액표 업로드 시 lookup 결과를 우선 적용하고, 미업로드 시 기존 비율 계산으로 fallback 됩니다.</div>
+              <label class="checkbox-row"><input id="wage-allow-meal" type="checkbox" checked><span>정액급식비 반영</span></label>
+              <label class="checkbox-row"><input id="wage-allow-manager" type="checkbox" checked><span>관리자수당 반영</span></label>
+              <label class="checkbox-row"><input id="wage-allow-family" type="checkbox" checked><span>가족수당 반영</span></label>
+              <label class="checkbox-row"><input id="wage-allow-adjust" type="checkbox" checked><span>조정수당 반영</span></label>
+              <label class="checkbox-row"><input id="wage-allow-overtime" type="checkbox" checked><span>시간외수당 반영</span></label>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <div class="card-title">자동 계산 결과</div>
+            </div>
+            <div id="wage-calc-result" class="card-body stacked-fields"></div>
           </div>
         </div>
       </section>
@@ -843,6 +998,8 @@
   <input id="excel-import-input" type="file" accept=".xlsx,.xls" hidden>
   <input id="hr-excel-import-input" type="file" accept=".xlsx,.xls" hidden>
   <input id="category-excel-import-input" type="file" accept=".xlsx,.xls" hidden>
+  <input id="pay-grade-import-input" type="file" accept=".xlsx,.xls,.csv" hidden>
+  <input id="tax-table-import-input" type="file" accept=".xlsx,.xls,.csv" hidden>
   <input id="backup-import-hidden" type="file" accept=".json" hidden>
 </body>
 </html>
