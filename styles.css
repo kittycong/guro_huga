@@ -316,24 +316,28 @@ button {
 }
 
 .chip-row {
-  display: flex;
-  gap: 8px;
+  display: inline-flex;
+  gap: 4px;
   flex-wrap: wrap;
   margin-bottom: 12px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
 }
 
 .chip-btn {
-  border: 1px solid rgba(38, 23, 28, 0.14);
-  background: #fff;
-  border-radius: 999px;
-  padding: 8px 14px;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 8px;
+  padding: 8px 12px;
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
 }
 
 .chip-btn.active {
-  background: var(--ink);
+  background: var(--rose-deep);
   color: #fff;
 }
 
@@ -515,6 +519,11 @@ button {
   display: grid;
   grid-template-columns: 1.5fr 1fr;
   gap: 16px;
+}
+.erp-two-panel {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
 }
 
 .stack-list {
@@ -944,6 +953,9 @@ button {
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
 }
+.leave-quick-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
 
 .hint-box,
 .log-box {
@@ -1031,6 +1043,16 @@ button {
   max-width: 160px;
 }
 
+.minor-card {
+  margin-bottom: 12px;
+}
+
+.sticky-result {
+  position: sticky;
+  top: 8px;
+  align-self: start;
+}
+
 .log-box {
   min-height: 72px;
   white-space: pre-wrap;
@@ -1107,6 +1129,9 @@ button {
   .filter-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .erp-two-panel {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 960px) {
@@ -1146,6 +1171,9 @@ button {
   .filter-grid {
     grid-template-columns: 1fr;
   }
+  .leave-quick-actions {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 640px) {
@@ -1164,6 +1192,9 @@ button {
   }
 
   .sticky-summary-card {
+    position: static;
+  }
+  .sticky-result {
     position: static;
   }
 
