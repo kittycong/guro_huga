@@ -332,6 +332,15 @@ button {
   color: #fff;
 }
 
+.card-collapse-btn {
+  margin-left: auto;
+  min-width: 64px;
+}
+
+.card.collapsed {
+  opacity: 0.96;
+}
+
 .btn,
 .icon-btn {
   border: none;

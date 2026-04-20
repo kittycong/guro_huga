@@ -59,6 +59,7 @@ const ui = {
   wageCalcEmployeeId: "",
   leaveTab: "overview",
   orgEditId: "",
+  collapsedCards: {},
   managerFilter: { search: "", dept: "", risk: "all", usageMin: "", usageMax: "" },
   modalType: ""
 };
@@ -175,6 +176,7 @@ function bindStaticEvents() {
     if (action === "toggle-erp-module") toggleErpModule(actionElement.dataset.erpModuleId);
     if (action === "switch-leave-tab") switchLeaveTab(actionElement.dataset.leaveTab || "overview");
     if (action === "run-wage-calculator") runWageCalculator();
+    if (action === "toggle-card-collapse") toggleCardCollapse(actionElement.dataset.cardKey);
   });
 
   document.getElementById("emp-sel").addEventListener("change", (event) => {
@@ -403,18 +405,71 @@ function renderActiveView() {
   };
   const renderer = viewRenderers[ui.activeView] || renderDashboard;
   renderer();
+  initCollapsibleCards();
+}
+
+function initCollapsibleCards() {
+  const scope = document.getElementById(`view-${ui.activeView}`);
+  if (!scope) return;
+  scope.querySelectorAll(".card").forEach((card, index) => {
+    const title = card.querySelector(".card-title")?.textContent?.trim() || `card-${index}`;
+    const key = `${ui.activeView}:${title}`;
+    card.dataset.cardKey = key;
+    if (!card.querySelector("[data-action='toggle-card-collapse']")) {
+      const head = card.querySelector(".card-head");
+      if (!head) return;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "btn ghost small card-collapse-btn";
+      button.dataset.action = "toggle-card-collapse";
+      button.dataset.cardKey = key;
+      head.appendChild(button);
+    }
+    if (ui.collapsedCards[key] === undefined && title.includes("템플릿")) ui.collapsedCards[key] = true;
+    applyCardCollapse(card, !!ui.collapsedCards[key]);
+  });
+}
+
+function toggleCardCollapse(cardKey) {
+  if (!cardKey) return;
+  ui.collapsedCards[cardKey] = !ui.collapsedCards[cardKey];
+  const card = document.querySelector(`.card[data-card-key="${cardKey}"]`);
+  if (!card) return;
+  applyCardCollapse(card, ui.collapsedCards[cardKey]);
+}
+
+function applyCardCollapse(card, collapsed) {
+  card.classList.toggle("collapsed", collapsed);
+  card.querySelectorAll(":scope > :not(.card-head)").forEach((node) => {
+    node.style.display = collapsed ? "none" : "";
+  });
+  const btn = card.querySelector("[data-action='toggle-card-collapse']");
+  if (btn) btn.textContent = collapsed ? "펼치기" : "접기";
 }
 
 function renderNavigation() {
   const container = document.getElementById("nav-list");
   const current = currentUser();
-  container.innerHTML = MENU_DEFS
-    .filter((menu) => hasMenuAccess(current?.id, menu.key))
-    .map((menu) => {
-      const active = ui.activeView === menu.key ? " active" : "";
-      return `<button class="nav-btn${active}" type="button" data-view="${menu.key}">${menu.label}<span>›</span></button>`;
-    })
-    .join("");
+  const grouped = [
+    { label: "개인", keys: ["cal", "hist"] },
+    { label: "운영", keys: ["dashboard", "mgr", "emp", "office"] },
+    { label: "휴가관리", keys: ["leave", "set", "sub", "spe"] },
+    { label: "인사관리", keys: ["hr", "payroll", "perm"] },
+    { label: "시스템", keys: ["sync", "datahub", "erp"] }
+  ];
+  const menuMap = new Map(MENU_DEFS.map((menu) => [menu.key, menu]));
+  container.innerHTML = grouped.map((group) => {
+    const buttons = group.keys
+      .map((key) => menuMap.get(key))
+      .filter((menu) => menu && hasMenuAccess(current?.id, menu.key))
+      .map((menu) => {
+        const active = ui.activeView === menu.key ? " active" : "";
+        return `<button class="nav-btn${active}" type="button" data-view="${menu.key}">${menu.label}<span>›</span></button>`;
+      })
+      .join("");
+    if (!buttons) return "";
+    return `<div class="nav-section"><div class="nav-label">${group.label}</div>${buttons}</div>`;
+  }).join("");
 
   container.querySelectorAll(".nav-btn").forEach((button) => {
     button.addEventListener("click", () => switchView(button.dataset.view));
@@ -436,31 +491,20 @@ function renderSidebar() {
 
 function renderDashboard() {
   const year = ui.managerYear;
-  const todayKey = formatDateKey(new Date());
   document.getElementById("dashboard-year-label").textContent = `${year}년 기준`;
 
   const summaries = state.employees.map((employee) => employeeSummary(employee.id, year));
-  const totalGrant = summaries.reduce((sum, item) => sum + item.total, 0);
-  const totalUsed = summaries.reduce((sum, item) => sum + item.used, 0);
   const totalRemain = summaries.reduce((sum, item) => sum + item.remain, 0);
+  const avgUsage = summaries.length ? Math.round(summaries.reduce((sum, item) => sum + item.usagePercent, 0) / summaries.length) : 0;
   const peopleAtRisk = summaries.filter((item) => item.alertLevel === "urgent" || item.alertLevel === "warning").length;
   const promotionTargets = summaries.filter((item) => item.promotionNeeded).length;
-  const todayLeaveCount = state.records.filter((record) => record.date === todayKey).length;
-  const unsavedChanges = state.updatedAt && lastSavedAt ? 0 : (state.updatedAt ? 1 : 0);
-
-  document.getElementById("today-summary").innerHTML = [
-    kpiCard("white", "오늘 휴가/반차", `${todayLeaveCount}`, "건", todayKey),
-    kpiCard("amber", "소멸 위험", `${peopleAtRisk}`, "명", "조치 필요"),
-    kpiCard("primary", "미저장 변경", `${unsavedChanges}`, "건", "공유 저장 확인"),
-    kpiCard("green", "최근 동기화", lastSavedAt || "없음", "", "GitHub 저장 기준")
-  ].join("");
+  document.getElementById("today-summary").innerHTML = "";
 
   document.getElementById("dashboard-kpis").innerHTML = [
-    kpiCard("primary", "직원 수", `${state.employees.length}`, "명", "현재 관리 대상"),
-    kpiCard("white", "총 연차 생성", totalGrant.toFixed(1), "일", "전체 직원 합산"),
-    kpiCard("green", "총 사용", totalUsed.toFixed(1), "일", "연차/반차 반영"),
-    kpiCard("amber", "소멸·촉진 대상", `${promotionTargets}`, "명", "촉진 검토 필요"),
-    kpiCard("red", "위험 인원", `${peopleAtRisk}`, "명", "잔여/소멸 경고")
+    kpiCard("primary", "전체 직원 수", `${state.employees.length}`, "명", "운영 대상"),
+    kpiCard("blue", "평균 사용률", `${avgUsage}`, "%", "연차 기준"),
+    kpiCard("red", "소멸 위험 인원", `${peopleAtRisk}`, "명", "즉시 확인"),
+    kpiCard("amber", "촉진 필요 인원", `${promotionTargets}`, "명", "안내 필요")
   ].join("");
 
   const alerts = buildAlerts(summaries);
@@ -475,8 +519,6 @@ function renderDashboard() {
       <tr>
         <td>${employeeCell(item.employee)}</td>
         <td>${item.employee.dept || "-"}</td>
-        <td>${item.total}</td>
-        <td>${item.used}</td>
         <td><strong>${item.remain}</strong></td>
         <td>${item.usagePercent}%</td>
         <td>${latest}</td>
@@ -3055,23 +3097,31 @@ function importSimpleTaxTableExcel(event) {
       const workbook = XLSX.read(loadEvent.target.result, { type: "array" });
       const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: "" });
-      const parsed = rows.map((row) => {
-        const salary = String(row["월급여"] || row["총급여"] || row["salary"] || "").replace(/[^0-9~\-]/g, "");
-        const [minRaw, maxRaw] = salary.includes("~") ? salary.split("~") : [salary, salary];
-        const salaryMin = Number(String(minRaw || "0").replace(/[^0-9]/g, ""));
-        const salaryMax = Number(String(maxRaw || minRaw || "0").replace(/[^0-9]/g, ""));
-        return {
-          salaryMin,
-          salaryMax: salaryMax || salaryMin,
-          familyCount: Number(String(row["가족수"] || row["부양가족수"] || row["family"] || "1").replace(/[^0-9]/g, "")) || 1,
-          childCount: Number(String(row["자녀수"] || row["8~20세 자녀수"] || row["child"] || "0").replace(/[^0-9]/g, "")) || 0,
-          tax: Number(String(row["소득세"] || row["원천세"] || row["tax"] || "0").replace(/[^0-9]/g, "")) || 0
-        };
-      }).filter((item) => item.salaryMin > 0 && item.salaryMax >= item.salaryMin);
-      if (!parsed.length) throw new Error("유효한 행이 없습니다. 컬럼 예시: 월급여(또는 salary), 가족수, 자녀수, 소득세");
-      state.settings.simpleTaxTable = parsed;
-      touchState(`간이세액표 업로드 ${parsed.length}건`);
-      alert(`간이세액표 ${parsed.length}건 반영 완료`);
+      const parsed = [];
+      rows.forEach((row) => {
+        const [salaryMin, salaryMax] = parseSalaryRange(row["월급여"] || row["총급여"] || row["과세표준"] || row["salary"] || "");
+        if (!(salaryMin > 0 && salaryMax >= salaryMin)) return;
+        const explicitFamily = Number(String(row["가족수"] || row["부양가족수"] || row["family"] || "").replace(/[^0-9]/g, ""));
+        const explicitChild = Number(String(row["자녀수"] || row["8~20세 자녀수"] || row["child"] || "0").replace(/[^0-9]/g, "")) || 0;
+        const explicitTax = Number(String(row["소득세"] || row["원천세"] || row["tax"] || "").replace(/[^0-9]/g, ""));
+        if (explicitFamily && explicitTax >= 0) {
+          parsed.push({ salaryMin, salaryMax, familyCount: explicitFamily, childCount: explicitChild, tax: explicitTax });
+          return;
+        }
+        Object.keys(row).forEach((key) => {
+          const familyCount = Number(String(key).replace(/[^0-9]/g, ""));
+          if (!familyCount) return;
+          const tax = Number(String(row[key] || "").replace(/[^0-9]/g, ""));
+          if (!tax && tax !== 0) return;
+          parsed.push({ salaryMin, salaryMax, familyCount, childCount: explicitChild, tax });
+        });
+      });
+      const deduped = parsed.filter((item) => item.salaryMin > 0 && item.salaryMax >= item.salaryMin && item.familyCount > 0);
+      deduped.sort((a, b) => a.salaryMin - b.salaryMin || a.familyCount - b.familyCount || a.childCount - b.childCount);
+      if (!deduped.length) throw new Error("유효한 행이 없습니다. 컬럼 예시: 월급여(범위), 가족수(또는 1명/2명...), 소득세");
+      state.settings.simpleTaxTable = deduped;
+      touchState(`간이세액표 업로드 ${deduped.length}건`);
+      alert(`간이세액표 ${deduped.length}건 반영 완료`);
     } catch (error) {
       alert(`간이세액표 업로드 오류: ${error.message}`);
     } finally {
@@ -3079,6 +3129,14 @@ function importSimpleTaxTableExcel(event) {
     }
   };
   reader.readAsArrayBuffer(file);
+}
+
+function parseSalaryRange(raw) {
+  const text = String(raw || "");
+  const nums = text.match(/[0-9,]+/g)?.map((item) => Number(String(item).replace(/,/g, ""))).filter((item) => item > 0) || [];
+  if (nums.length >= 2) return [Math.min(nums[0], nums[1]), Math.max(nums[0], nums[1])];
+  if (nums.length === 1) return [nums[0], nums[0]];
+  return [0, 0];
 }
 
 function calculateAllowancePackage(record, basePay, flags = {}) {
