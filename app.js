@@ -2197,14 +2197,18 @@ function renderCalendarGrid() {
     if (records.some((record) => record.type === "교육")) classes.push("edu");
     if (records.some((record) => record.type === "출장")) classes.push("trip");
     const leaveCount = records.filter((record) => record.type === "연차").length;
-    const halfCount = records.filter((record) => record.type === "반차" || record.type === "반반차").length;
+    const halfRecords = records.filter((record) => record.type === "반차" || record.type === "반반차");
+    const halfUsage = round(halfRecords.reduce((sum, record) => sum + leaveDelta(record.type), 0));
+    const halfLabel = halfRecords.length
+      ? [...new Set(halfRecords.map((record) => record.type))].join("/")
+      : "";
     const eduCount = records.filter((record) => record.type === "교육").length;
     const tripCount = records.filter((record) => record.type === "출장").length;
     const tags = [];
     if (holiday) tags.push(`<span class="day-tag holiday">${HOLIDAYS[key]}</span>`);
     else if (isSubHoliday) tags.push(`<span class="day-tag sub">대체휴일</span>`);
     if (leaveCount) tags.push(`<span class="day-tag leave">연차 ${leaveCount}</span>`);
-    if (halfCount) tags.push(`<span class="day-tag half">반차 ${halfCount}</span>`);
+    if (halfUsage) tags.push(`<span class="day-tag half">${halfLabel} ${formatLeaveDelta(halfUsage)} 차감</span>`);
     if (eduCount) tags.push(`<span class="day-tag edu">교육 ${eduCount}</span>`);
     if (tripCount) tags.push(`<span class="day-tag trip">출장 ${tripCount}</span>`);
 
@@ -2249,7 +2253,13 @@ function renderRecordRow(record) {
 
 function recordUsageLabel(record) {
   const delta = leaveDelta(record.type);
-  return delta ? `연차 차감 ${delta}일` : "연차 차감 없음";
+  return delta ? `연차 차감 ${formatLeaveDelta(delta)}일` : "연차 차감 없음";
+}
+
+function formatLeaveDelta(value) {
+  const number = Number(value || 0);
+  if (Number.isInteger(number)) return String(number);
+  return String(number).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
 }
 
 function renderSubRow(item) {
