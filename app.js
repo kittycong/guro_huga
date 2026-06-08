@@ -1186,6 +1186,7 @@ function renderFiscalDashboard(fiscal, seniority) {
     }
   ];
   const grantRows = seniority.grants.slice(-12);
+  const prorationRows = seniority.prorationRows || [];
   target.innerHTML = `
     <div class="card-head">
       <div>
@@ -1253,6 +1254,27 @@ function renderFiscalDashboard(fiscal, seniority) {
         </table>
       </div>
       <div class="row-desc">최근 12개 발생 항목만 표시합니다. 1년 미만은 매월 만근 시 1일, 1년 이상은 입사일 기준 15일 + 2년마다 1일 가산(최대 25일)으로 계산합니다.</div>
+    </div>
+    <div class="fiscal-list-section">
+      <div class="mini-section-title">연도말 안분 계산식</div>
+      <div class="table-wrap compact-table">
+        <table class="table">
+          <thead><tr><th>기준 발생기간</th><th>연도 적용기간</th><th>기본 생성</th><th>적용일수</th><th>계산식</th><th>최종 적용</th></tr></thead>
+          <tbody>
+            ${prorationRows.length ? prorationRows.map((row) => `
+              <tr>
+                <td>${row.basePeriodLabel}</td>
+                <td>${row.targetPeriodLabel}</td>
+                <td>${row.baseDays.toFixed(2)}</td>
+                <td>${row.targetDays} / ${row.basePeriodDays}일</td>
+                <td>${row.formula}</td>
+                <td><strong>${row.appliedDays.toFixed(2)}일</strong></td>
+              </tr>
+            `).join("") : `<tr><td colspan="6">${seniority.joinDate ? "선택 연도에 안분할 입사일 연차가 없습니다." : "입사일을 먼저 입력하세요."}</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+      <div class="row-desc">입사일 연차를 연도말 기준으로 나누어 볼 때는 발생기간 전체 일수 대비 해당 연도 적용 일수를 곱한 뒤, 직원에게 불리하지 않도록 소수점은 올림 처리합니다.</div>
     </div>
   `;
 }
@@ -2662,13 +2684,14 @@ function seniorityLeaveSummary(empId, year) {
       generated: 0,
       used: 0,
       remain: 0,
-      grants: []
+      grants: [],
+      prorationRows: []
     };
   }
-  const join = parseDateKey(joinDate);
   const periodEnd = new Date(year, 11, 31);
   const endKey = formatDateKey(periodEnd);
   const grants = buildSeniorityLeaveGrants(joinDate, endKey);
+  const prorationRows = buildAnnualProrationRows(grants, year);
   const used = round(state.records
     .filter((record) => record.empId === empId && record.date >= joinDate && record.date <= endKey)
     .reduce((sum, record) => sum + leaveDelta(record.type), 0));
@@ -2694,7 +2717,8 @@ function seniorityLeaveSummary(empId, year) {
     generated,
     used,
     remain: round(generated - used),
-    grants: grantsWithBalance
+    grants: grantsWithBalance,
+    prorationRows
   };
 }
 
@@ -2709,7 +2733,8 @@ function buildSeniorityLeaveGrants(joinDate, endDate) {
     grants.push({
       date: formatDateKey(grantDate),
       label: "1년 미만 만근 월차",
-      days: 1
+      days: 1,
+      kind: "monthly"
     });
   }
   for (let serviceYears = 1; serviceYears <= 60; serviceYears += 1) {
@@ -2718,10 +2743,42 @@ function buildSeniorityLeaveGrants(joinDate, endDate) {
     grants.push({
       date: formatDateKey(grantDate),
       label: `${serviceYears}년차 입사일 연차`,
-      days: anniversaryLeaveDays(serviceYears)
+      days: anniversaryLeaveDays(serviceYears),
+      kind: "annual",
+      serviceYears,
+      periodEnd: annualGrantPeriodEnd(grantDate)
     });
   }
   return grants.sort((left, right) => left.date.localeCompare(right.date));
+}
+
+function buildAnnualProrationRows(grants, year) {
+  const yearStartKey = `${year}-01-01`;
+  const yearEndKey = `${year}-12-31`;
+  return grants
+    .filter((grant) => grant.kind === "annual" && grant.date <= yearEndKey && grant.periodEnd >= yearStartKey)
+    .map((grant) => {
+      const targetStart = maxDateKey(grant.date, yearStartKey);
+      const targetEnd = minDateKey(grant.periodEnd, yearEndKey);
+      const basePeriodDays = inclusiveDays(grant.date, grant.periodEnd);
+      const targetDays = inclusiveDays(targetStart, targetEnd);
+      const prorated = basePeriodDays ? (grant.days * targetDays) / basePeriodDays : 0;
+      const appliedDays = Math.ceil(prorated);
+      return {
+        basePeriodLabel: `${grant.date} ~ ${grant.periodEnd}`,
+        targetPeriodLabel: `${targetStart} ~ ${targetEnd}`,
+        baseDays: grant.days,
+        basePeriodDays,
+        targetDays,
+        prorated,
+        appliedDays,
+        formula: `${grant.days.toFixed(0)}일 × ${targetDays}일 / ${basePeriodDays}일 = ${prorated.toFixed(2)}일 → 올림 ${appliedDays}일`
+      };
+    });
+}
+
+function annualGrantPeriodEnd(grantDate) {
+  return formatDateKey(new Date(grantDate.getFullYear() + 1, grantDate.getMonth(), 0));
 }
 
 function anniversaryLeaveDays(serviceYears) {
@@ -2734,6 +2791,21 @@ function parseDateKey(value) {
   const [year, month, day] = String(value).split("-").map(Number);
   if (!year || !month || !day) return null;
   return new Date(year, month - 1, day);
+}
+
+function inclusiveDays(startKey, endKey) {
+  const start = parseDateKey(startKey);
+  const end = parseDateKey(endKey);
+  if (!start || !end || start > end) return 0;
+  return Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+}
+
+function maxDateKey(left, right) {
+  return left >= right ? left : right;
+}
+
+function minDateKey(left, right) {
+  return left <= right ? left : right;
 }
 
 function addMonthsClamped(date, months) {
