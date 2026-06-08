@@ -135,6 +135,14 @@
       setSyncStatus("idle", "초안", "로컬 초안을 불러왔습니다.");
     }
 
+    if (typeof isSupabaseEnabled === "function" && isSupabaseEnabled()) {
+      const loaded = await loadSupabaseState();
+      if (loaded) {
+        await subscribeSupabaseState();
+        return;
+      }
+    }
+
     try {
       const response = await fetch(`./data/app-data.json?ts=${Date.now()}`, { cache: "no-store" });
       if (!response.ok) throw new Error(`공유 파일 로딩 실패 (${response.status})`);
@@ -154,6 +162,14 @@
 
   window.reloadFromRemote = reloadFromRemote = async function reloadFromRemoteRecoveryHotfix() {
     try {
+      if (typeof isSupabaseEnabled === "function" && isSupabaseEnabled()) {
+        const loaded = await loadSupabaseState();
+        if (loaded) {
+          await subscribeSupabaseState();
+          renderAll();
+        }
+        return;
+      }
       const draft = readJsonStorage(STORAGE_KEYS.draft);
       const response = await fetch(`./data/app-data.json?ts=${Date.now()}`, { cache: "no-store" });
       if (!response.ok) throw new Error(`공유 데이터 다시 읽기 실패 (${response.status})`);

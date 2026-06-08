@@ -1,3 +1,12 @@
+@font-face {
+  font-family: "SeoulNamsan";
+  src: local("SeoulNamsan"), local("Seoul Namsan"),
+    url("https://fastly.jsdelivr.net/gh/projectnoonnu/noonfonts_2108@1.1/SeoulNamsanM.woff") format("woff");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --rose: #db6d8f;
   --rose-deep: #bf5a7a;
@@ -17,21 +26,21 @@
   --blue-soft: #e5eff5;
   --purple: #735ca7;
   --purple-soft: #ece8f8;
-  --space-1: 6px;
-  --space-2: 10px;
-  --space-3: 14px;
-  --space-4: 18px;
-  --space-5: 24px;
-  --radius: 12px;
-  --radius-sm: 10px;
-  --radius-lg: 14px;
+  --space-1: 4px;
+  --space-2: 7px;
+  --space-3: 10px;
+  --space-4: 14px;
+  --space-5: 18px;
+  --radius: 8px;
+  --radius-sm: 7px;
+  --radius-lg: 10px;
   --shadow: 0 6px 20px rgba(36, 58, 49, 0.08);
-  --text-xl: 28px;
-  --text-lg: 20px;
-  --text-md: 15px;
-  --text-sm: 13px;
-  --text-xs: 12px;
-  --sidebar-w: 256px;
+  --text-xl: 34px;
+  --text-lg: 25px;
+  --text-md: 21px;
+  --text-sm: 18px;
+  --text-xs: 16px;
+  --sidebar-w: 248px;
 }
 
 * {
@@ -42,7 +51,8 @@ html,
 body {
   margin: 0;
   min-height: 100%;
-  font-family: "Noto Sans KR", sans-serif;
+  font-family: "SeoulNamsan", "Noto Sans KR", "Malgun Gothic", sans-serif;
+  font-size: var(--text-md);
   background: linear-gradient(180deg, #f3f8f5 0%, #f6fbf8 55%, #fbf4f7 100%);
   color: var(--ink);
 }
@@ -65,12 +75,12 @@ button {
 
 .sidebar {
   width: var(--sidebar-w);
-  padding: 26px 18px 22px;
+  padding: 18px 12px 16px;
   background: linear-gradient(180deg, #90b7a0 0%, #7ca58d 54%, #6b947d 100%);
   color: #fff;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 10px;
   position: sticky;
   top: 0;
   height: 100vh;
@@ -83,39 +93,39 @@ button {
 }
 
 .brand-mark {
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.18);
   display: grid;
   place-items: center;
   font-family: "Gowun Batang", serif;
-  font-size: 21px;
+  font-size: 22px;
   font-weight: 700;
 }
 
 .brand-title {
-  font-family: "Gowun Batang", serif;
-  font-size: 18px;
+  font-family: "SeoulNamsan", "Noto Sans KR", sans-serif;
+  font-size: 20px;
   font-weight: 700;
 }
 
 .brand-sub {
   opacity: 0.72;
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .nav-group,
 .sidebar-panel {
   background: rgba(255, 255, 255, 0.11);
   border: 1px solid rgba(255, 255, 255, 0.26);
-  border-radius: 18px;
-  padding: 14px;
+  border-radius: 10px;
+  padding: 10px;
 }
 
 .nav-label {
   opacity: 0.6;
-  font-size: 11px;
+  font-size: 14px;
   text-transform: uppercase;
   letter-spacing: 1px;
   margin-bottom: 10px;
@@ -132,12 +142,12 @@ button {
   background: transparent;
   color: rgba(255, 255, 255, 0.76);
   text-align: left;
-  padding: 10px 12px;
-  border-radius: 12px;
+  padding: 8px 9px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 13px;
+  font-size: 17px;
   font-weight: 600;
 }
 
@@ -149,7 +159,7 @@ button {
 
 .field-label {
   display: block;
-  font-size: 11px;
+  font-size: 15px;
   font-weight: 700;
   margin-bottom: 6px;
   color: var(--ink-soft);
@@ -161,12 +171,55 @@ button {
 
 .field {
   width: 100%;
-  border-radius: 12px;
+  border-radius: 8px;
   border: 1px solid var(--line-strong);
   background: #fff;
-  padding: 10px 12px;
+  padding: 8px 10px;
   color: var(--ink);
   outline: none;
+}
+
+.compact-field {
+  width: auto;
+  min-width: 118px;
+}
+
+.compact-search {
+  width: min(240px, 100%);
+}
+
+.history-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.mode-btn {
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  padding: 8px 9px;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.mode-btn.active {
+  background: #fff;
+  color: #4f8f6c;
+}
+
+.sidebar .field:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 
 .field.tall-area {
@@ -188,17 +241,17 @@ button {
 .whoami {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-top: 12px;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .avatar {
-  width: 44px;
-  height: 44px;
-  border-radius: 15px;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
   display: grid;
   place-items: center;
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 800;
   color: #fff;
   background: rgba(255, 255, 255, 0.2);
@@ -218,7 +271,7 @@ button {
 
 .whoami-meta,
 .mini-help {
-  font-size: 11px;
+  font-size: 14px;
   opacity: 0.78;
 }
 
@@ -231,7 +284,7 @@ button {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
-  font-size: 12px;
+  font-size: 15px;
 }
 
 .sync-pill {
@@ -241,7 +294,7 @@ button {
   min-width: 56px;
   padding: 4px 8px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .sync-pill.idle {
@@ -262,12 +315,12 @@ button {
 
 .main {
   flex: 1;
-  padding: 28px 30px 42px;
+  padding: 16px 18px 26px;
 }
 
 .view {
   display: none;
-  animation: fade-up 0.25s ease;
+  animation: none;
 }
 
 .view.active {
@@ -289,23 +342,23 @@ button {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 16px;
-  margin-bottom: 18px;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
 .page-title {
   font-size: var(--text-xl);
   font-weight: 800;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
   line-height: 1.16;
 }
 
 .page-sub {
-  margin-top: 10px;
+  margin-top: 6px;
   color: var(--ink-dim);
   font-size: var(--text-sm);
   max-width: 720px;
-  line-height: 1.65;
+  line-height: 1.35;
 }
 
 .head-actions,
@@ -319,8 +372,8 @@ button {
   display: inline-flex;
   gap: 4px;
   flex-wrap: wrap;
-  margin-bottom: 12px;
-  padding: 4px;
+  margin-bottom: 8px;
+  padding: 3px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: #fff;
@@ -329,9 +382,9 @@ button {
 .chip-btn {
   border: 1px solid transparent;
   background: transparent;
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 13px;
+  border-radius: 7px;
+  padding: 7px 10px;
+  font-size: 17px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -353,12 +406,12 @@ button {
 .btn,
 .icon-btn {
   border: none;
-  border-radius: 12px;
+  border-radius: 8px;
   transition: 0.18s ease;
 }
 
 .btn {
-  padding: 10px 14px;
+  padding: 8px 11px;
   font-size: var(--text-xs);
   font-weight: 700;
   border-radius: var(--radius-sm);
@@ -367,8 +420,8 @@ button {
 }
 
 .btn.small {
-  padding: 8px 12px;
-  font-size: 12px;
+  padding: 6px 9px;
+  font-size: 15px;
 }
 
 .btn.primary {
@@ -399,9 +452,9 @@ button {
 }
 
 .icon-btn {
-  width: 34px;
-  height: 34px;
-  font-size: 18px;
+  width: 36px;
+  height: 36px;
+  font-size: 22px;
 }
 
 .card {
@@ -410,16 +463,16 @@ button {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
   overflow: hidden;
-  margin-bottom: 20px;
+  margin-bottom: 10px;
 }
 
 .card-head {
-  padding: 14px 16px;
+  padding: 9px 11px;
   border-bottom: 1px solid var(--line);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .card-title {
@@ -429,23 +482,23 @@ button {
 
 .card-meta {
   color: var(--ink-dim);
-  font-size: 12px;
+  font-size: 15px;
 }
 
 .card-body {
-  padding: 14px 16px;
+  padding: 9px 11px;
 }
 
 .stacked-fields {
   display: grid;
-  gap: 10px;
+  gap: 7px;
 }
 
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
 .kpi-grid.four {
@@ -454,7 +507,7 @@ button {
 
 .kpi-card {
   border-radius: var(--radius);
-  padding: 16px;
+  padding: 10px;
   position: relative;
   overflow: hidden;
   color: var(--ink);
@@ -484,29 +537,29 @@ button {
 }
 
 .kpi-label {
-  font-size: 11px;
+  font-size: 15px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   text-transform: uppercase;
   opacity: 0.76;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .kpi-value {
-  font-size: 30px;
+  font-size: 34px;
   font-weight: 900;
-  letter-spacing: -0.05em;
+  letter-spacing: 0;
 }
 
 .kpi-value small {
-  font-size: 13px;
+  font-size: 17px;
   font-weight: 600;
   margin-left: 4px;
 }
 
 .kpi-help {
-  margin-top: 4px;
-  font-size: 12px;
+  margin-top: 2px;
+  font-size: 15px;
   color: var(--ink-dim);
 }
 
@@ -518,7 +571,7 @@ button {
 .layout-two {
   display: grid;
   grid-template-columns: 1.5fr 1fr;
-  gap: 16px;
+  gap: 10px;
 }
 .erp-two-panel {
   display: grid;
@@ -532,16 +585,16 @@ button {
 }
 
 .stack-list.compact .row-item {
-  padding-top: 12px;
-  padding-bottom: 12px;
+  padding-top: 8px;
+  padding-bottom: 8px;
 }
 
 .row-item {
-  padding: 15px 18px;
+  padding: 9px 11px;
   border-bottom: 1px solid rgba(38, 23, 28, 0.06);
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   align-items: center;
 }
 
@@ -590,7 +643,7 @@ button {
 .row-desc {
   font-size: var(--text-xs);
   color: var(--ink-dim);
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
 .tag {
@@ -598,8 +651,8 @@ button {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  padding: 5px 10px;
-  font-size: 12px;
+  padding: 4px 8px;
+  font-size: 15px;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -709,8 +762,12 @@ button {
   background: var(--purple);
 }
 
+.dot.green {
+  background: var(--green);
+}
+
 .calendar-body {
-  padding: 16px 18px 18px;
+  padding: 10px 12px 12px;
 }
 
 .weekday-row,
@@ -721,21 +778,21 @@ button {
 
 .weekday-row {
   gap: 4px;
-  margin-bottom: 6px;
-  font-size: 11px;
+  margin-bottom: 4px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--ink-dim);
   text-align: center;
 }
 
 .calendar-grid {
-  gap: 5px;
+  gap: 4px;
 }
 
 .day-cell {
-  min-height: 74px;
-  padding: 6px;
-  border-radius: 10px;
+  min-height: 82px;
+  padding: 5px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.86);
   border: 1px solid rgba(38, 23, 28, 0.05);
   transition: 0.18s ease;
@@ -771,18 +828,26 @@ button {
   background: var(--purple-soft);
 }
 
+.day-cell.edu {
+  box-shadow: inset 0 -4px 0 var(--purple);
+}
+
+.day-cell.trip {
+  box-shadow: inset 0 -4px 0 var(--green);
+}
+
 .day-number {
-  font-size: 13px;
+  font-size: 18px;
   font-weight: 800;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .day-tag {
   display: block;
-  border-radius: 8px;
-  padding: 2px 6px;
-  margin-top: 3px;
-  font-size: 11px;
+  border-radius: 6px;
+  padding: 1px 5px;
+  margin-top: 2px;
+  font-size: 14px;
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
@@ -809,6 +874,16 @@ button {
   color: #fff;
 }
 
+.day-tag.edu {
+  background: var(--purple);
+  color: #fff;
+}
+
+.day-tag.trip {
+  background: var(--green);
+  color: #fff;
+}
+
 .table-wrap {
   overflow-x: auto;
 }
@@ -820,10 +895,10 @@ button {
 
 .table th,
 .table td {
-  padding: 12px 14px;
+  padding: 8px 10px;
   border-bottom: 1px solid rgba(38, 23, 28, 0.06);
   text-align: left;
-  font-size: 13px;
+  font-size: 17px;
 }
 
 .table th {

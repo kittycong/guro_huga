@@ -1,0 +1,7 @@
+{
+  "enabled": true,
+  "url": "https://ucvdzharyqohmnskrjzg.supabase.co",
+  "anonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjdmR6aGFyeXFvaG1uc2tyanpnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA4OTE5NzAsImV4cCI6MjA5NjQ2Nzk3MH0.BT1BPbR4GldhwV52JhGRtxpB2Z6Y2uqBNCv6tLpLPj4",
+  "table": "guro_huga_state",
+  "rowId": "main"
+}

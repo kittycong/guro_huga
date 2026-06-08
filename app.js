@@ -1,18 +1,23 @@
 const HOLIDAYS = {
   "2026-01-01": "신정",
+  "2026-02-15": "설 연휴",
   "2026-02-16": "설날",
   "2026-02-17": "설 연휴",
-  "2026-02-18": "대체공휴일",
+  "2026-02-18": "설 대체공휴일",
   "2026-03-01": "삼일절",
-  "2026-03-02": "대체공휴일",
+  "2026-03-02": "삼일절 대체공휴일",
   "2026-05-05": "어린이날",
-  "2026-05-25": "대체공휴일",
+  "2026-05-24": "부처님오신날",
+  "2026-05-25": "부처님오신날 대체공휴일",
+  "2026-06-03": "제9회 전국동시지방선거",
   "2026-06-06": "현충일",
   "2026-08-15": "광복절",
-  "2026-08-17": "대체공휴일",
+  "2026-08-17": "광복절 대체공휴일",
+  "2026-09-24": "추석 연휴",
   "2026-09-25": "추석",
+  "2026-09-26": "추석 연휴",
   "2026-10-03": "개천절",
-  "2026-10-05": "대체공휴일",
+  "2026-10-05": "개천절 대체공휴일",
   "2026-10-09": "한글날",
   "2026-12-25": "성탄절"
 };
@@ -22,9 +27,12 @@ const COLORS = ["#c75272", "#2d7c61", "#305f94", "#7153b8", "#b67a1c", "#be3947"
 const STORAGE_KEYS = {
   draft: "guro_huga_local_draft",
   token: "guro_huga_github_token",
+  supabaseConfig: "guro_huga_supabase_config_v1",
+  supabaseClientId: "guro_huga_supabase_client_id_v1",
   syncPrefs: "guro_huga_sync_prefs",
   adminPw: "guro_huga_admin_pw_v1",
-  archive: "guro_huga_archive_v1"
+  archive: "guro_huga_archive_v1",
+  accessMode: "guro_huga_access_mode_v1"
 };
 
 const MENU_DEFS = [
@@ -53,6 +61,7 @@ const ui = {
   managerYear: new Date().getFullYear(),
   hrYear: new Date().getFullYear(),
   selectedEmployeeId: "",
+  accessMode: localStorage.getItem("guro_huga_access_mode_v1") || "personal",
   settingsEmployeeId: "",
   subEmployeeId: "",
   specialEmployeeId: "",
@@ -112,11 +121,19 @@ let saveTimer = null;
 let saveQueued = false;
 let saveInFlight = false;
 let syncStatus = { tone: "idle", label: "대기", detail: "공유 데이터 준비 중" };
+let supabaseClient = null;
+let supabaseChannel = null;
+let supabaseClientId = localStorage.getItem(STORAGE_KEYS.supabaseClientId) || "";
+let applyingRemoteState = false;
+let supabaseSdkPromise = null;
+let supabaseRuntimeConfig = null;
 
 document.addEventListener("DOMContentLoaded", init);
 
 async function init() {
+  ensureRuntimeLayout();
   bindStaticEvents();
+  await loadExternalSupabaseConfig();
   await loadInitialState();
   normalizeState();
   initializeSelections();
@@ -126,6 +143,21 @@ async function init() {
 
 function bindStaticEvents() {
   document.body.addEventListener("click", async (event) => {
+    const recordPrint = event.target.closest("[data-record-print]");
+    if (recordPrint) {
+      openLeavePrintModal(recordPrint.dataset.recordPrint);
+      return;
+    }
+    const recordDelete = event.target.closest("[data-record-delete]");
+    if (recordDelete) {
+      deleteRecord(recordDelete.dataset.recordDelete);
+      return;
+    }
+    const personalLink = event.target.closest("[data-copy-personal-link]");
+    if (personalLink) {
+      copyPersonalLink(personalLink.dataset.copyPersonalLink);
+      return;
+    }
     const actionElement = event.target.closest("[data-action]");
     const action = actionElement?.dataset.action;
     if (!action) return;
@@ -144,6 +176,9 @@ function bindStaticEvents() {
     if (action === "reset-settings") renderSettings();
     if (action === "save-token") saveToken();
     if (action === "clear-token") clearToken();
+    if (action === "save-supabase-config") await saveSupabaseConfig();
+    if (action === "clear-supabase-config") clearSupabaseConfig();
+    if (action === "seed-supabase") await seedSupabaseFromCurrentState();
     if (action === "save-admin-password") saveAdminPassword();
     if (action === "clear-admin-password") clearAdminPassword();
     if (action === "save-ops-memo") saveOpsMemo();
@@ -151,6 +186,10 @@ function bindStaticEvents() {
     if (action === "import-backup") document.getElementById("backup-import-hidden").click();
     if (action === "export-excel") exportExcelSnapshot();
     if (action === "import-excel") document.getElementById("excel-import-input").click();
+    if (action === "export-leave-excel") exportLeaveRecordsExcel();
+    if (action === "import-leave-excel") document.getElementById("leave-record-import-input").click();
+    if (action === "open-leave-print-modal") openLeavePrintModal();
+    if (action === "set-access-mode") await setAccessMode(actionElement.dataset.mode);
     if (action === "export-hr-excel") exportHrExcel();
     if (action === "import-hr-excel") document.getElementById("hr-excel-import-input").click();
     if (action === "import-pay-grade-excel") document.getElementById("pay-grade-import-input").click();
@@ -211,6 +250,7 @@ function bindStaticEvents() {
   });
 
   document.getElementById("excel-import-input").addEventListener("change", importExcelSnapshot);
+  document.getElementById("leave-record-import-input").addEventListener("change", importLeaveRecordsExcel);
   document.getElementById("hr-excel-import-input").addEventListener("change", importHrExcel);
   document.getElementById("category-excel-import-input").addEventListener("change", importCategoryExcel);
   document.getElementById("pay-grade-import-input").addEventListener("change", importPayGradeExcel);
@@ -312,12 +352,185 @@ function bindStaticEvents() {
   });
 }
 
+function copyPersonalLink(empId) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("mode", "personal");
+  url.searchParams.set("emp", empId);
+  navigator.clipboard?.writeText(url.toString());
+  alert("개인 모드 링크를 복사했습니다.");
+}
+
+function deleteRecord(id) {
+  const record = state.records.find((item) => item.id === id);
+  if (!record) return;
+  if (!confirm(`${record.date} ${record.type} 기록을 삭제할까요?`)) return;
+  state.records = state.records.filter((item) => item.id !== id);
+  touchState(`휴가 기록 삭제 ${record.date}`);
+  renderAll();
+}
+
+function ensureRuntimeLayout() {
+  if (!document.getElementById("leave-record-import-input")) {
+    document.body.insertAdjacentHTML("beforeend", `<input id="leave-record-import-input" type="file" accept=".xlsx,.xls" hidden>`);
+  }
+  if (!document.getElementById("access-mode-panel")) {
+    const syncPanel = document.querySelector(".sync-mini");
+    syncPanel?.insertAdjacentHTML("beforebegin", `
+      <div id="access-mode-panel" class="sidebar-panel access-mode-panel">
+        <label class="field-label">사용 모드</label>
+        <div class="mode-switch">
+          <button class="mode-btn" type="button" data-action="set-access-mode" data-mode="personal">개인</button>
+          <button class="mode-btn" type="button" data-action="set-access-mode" data-mode="admin">관리자</button>
+        </div>
+        <div id="access-mode-help" class="mini-help"></div>
+      </div>
+    `);
+  }
+  appendInside("#view-hist .head-actions", `
+    <button class="btn ghost" data-action="import-leave-excel">휴가목록 엑셀 업로드</button>
+    <button class="btn ghost" data-action="export-leave-excel">휴가목록 엑셀 다운로드</button>
+    <button class="btn primary" data-action="open-leave-print-modal">휴가신청서 출력</button>
+  `);
+  appendInside("#view-hist .card .card-head", `
+    <div class="history-tools">
+      <select id="hist-month" class="field compact-field">
+        <option value="">전체 월</option>
+        ${Array.from({ length: 12 }, (_, index) => `<option value="${pad(index + 1)}">${index + 1}월</option>`).join("")}
+      </select>
+      <select id="hist-type" class="field compact-field">
+        <option value="">전체 구분</option>
+        <option value="연차">연차</option>
+        <option value="반차">반차</option>
+        <option value="반반차">반반차</option>
+      </select>
+      <input id="hist-search" class="field compact-search" type="text" placeholder="내역 검색">
+    </div>
+  `);
+  appendBefore("view-emp", "employee-grid", `
+    <div class="card">
+      <div class="card-body filter-grid">
+        <input id="emp-search" class="field" type="text" placeholder="직원명/부서/직책 검색">
+        <input id="emp-dept" class="field" type="text" placeholder="부서 필터">
+        <select id="emp-risk" class="field">
+          <option value="all">전체 상태</option>
+          <option value="risk">위험/주의</option>
+          <option value="safe">안정</option>
+        </select>
+        <select id="emp-view-mode" class="field">
+          <option value="card">카드 보기</option>
+          <option value="table">표 보기</option>
+        </select>
+      </div>
+    </div>
+    <div id="employee-table-card" class="card" style="display:none;">
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>직원</th><th>소속</th><th>잔여</th><th>최근기록</th><th>상태</th><th>관리</th></tr></thead>
+          <tbody id="employee-table-body"></tbody>
+        </table>
+      </div>
+    </div>
+  `);
+  appendBefore("view-sub", "sub-employee-tabs", `<input id="sub-employee-search" class="field" type="text" placeholder="직원명/부서 검색">`);
+  appendBefore("view-office", "office-kpis", `
+    <div class="card"><div class="card-body filter-grid">
+      <input id="office-dept-filter" class="field" type="text" placeholder="부서 필터">
+      <input id="office-role-filter" class="field" type="text" placeholder="직책 필터">
+      <select id="office-balance-filter" class="field">
+        <option value="all">전체</option>
+        <option value="leave">연차 잔여</option>
+        <option value="special">특별휴가 잔여</option>
+        <option value="sub">대체휴가 잔여</option>
+      </select>
+    </div></div>
+  `);
+  appendBefore("view-hr", "hr-year-tabs", `
+    <div class="card"><div class="card-body filter-grid">
+      <input id="hr-search" class="field" type="text" placeholder="직원/부서/직책 검색">
+      <select id="hr-status-filter" class="field">
+        <option value="">전체 상태</option>
+        <option value="재직">재직</option>
+        <option value="휴직">휴직</option>
+        <option value="퇴사">퇴사</option>
+      </select>
+    </div></div>
+  `);
+  appendBefore("view-mgr", "manager-year-tabs", `
+    <div id="manager-summary" class="kpi-grid four"></div>
+  `);
+  appendInside("#view-mgr .filter-grid", `
+    <input id="manager-remain-min" class="field" type="number" min="0" placeholder="잔여 최소일">
+    <select id="manager-sort" class="field">
+      <option value="name">이름순</option>
+      <option value="risk">위험순</option>
+      <option value="remainAsc">잔여 적은순</option>
+      <option value="remainDesc">잔여 많은순</option>
+    </select>
+  `);
+  appendInside("#view-datahub .card .card-body", `<div id="datahub-validate" class="log-box">카테고리를 선택하세요.</div>`);
+  appendBefore("view-erp", "org-edit-id", `<div id="erp-module-kpis" class="kpi-grid four"></div>`);
+  appendInside("#view-sync", `
+    <div id="supabase-sync-card" class="section-block">
+      <div class="section-title">Supabase DB 연결</div>
+      <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">Supabase 실시간 저장</div>
+          <div class="card-meta">20명 공동수정용 DB 연결</div>
+        </div>
+      </div>
+      <div class="card-body stacked-fields">
+        <label class="checkbox-row"><input id="supabase-enabled" type="checkbox"><span>Supabase 저장 사용</span></label>
+        <label class="field-label" for="supabase-url">Project URL</label>
+        <input id="supabase-url" class="field" type="url" placeholder="https://프로젝트.supabase.co">
+        <label class="field-label" for="supabase-anon-key">Anon / Publishable Key</label>
+        <input id="supabase-anon-key" class="field" type="password" placeholder="Supabase public anon key">
+        <div class="filter-grid">
+          <input id="supabase-table" class="field" type="text" placeholder="테이블명" value="guro_huga_state">
+          <input id="supabase-row-id" class="field" type="text" placeholder="행 ID" value="main">
+        </div>
+        <div class="button-row">
+          <button class="btn primary small" data-action="save-supabase-config">Supabase 연결 저장</button>
+          <button class="btn ghost small" data-action="seed-supabase">현재 데이터 초기 저장</button>
+          <button class="btn danger small" data-action="clear-supabase-config">연결 해제</button>
+        </div>
+        <div class="hint-box">Supabase SQL Editor에서 <code>supabase/schema.sql</code>을 먼저 실행한 뒤 URL과 anon key를 입력하세요. 활성화하면 공유 저장/자동저장은 Supabase DB를 우선 사용합니다.</div>
+      </div>
+    </div>
+    </div>
+  `);
+}
+
+function appendInside(selector, html) {
+  const target = document.querySelector(selector.includes("#") || selector.includes(".") ? selector : `#${selector}`);
+  if (!target) return;
+  const firstId = html.match(/id="([^"]+)"/)?.[1];
+  if (firstId && document.getElementById(firstId)) return;
+  target.insertAdjacentHTML("beforeend", html);
+}
+
+function appendBefore(viewId, anchorId, html) {
+  const view = document.getElementById(viewId);
+  const anchor = document.getElementById(anchorId);
+  const firstId = html.match(/id="([^"]+)"/)?.[1];
+  if (!view || !anchor || (firstId && document.getElementById(firstId))) return;
+  anchor.insertAdjacentHTML("beforebegin", html);
+}
+
 async function loadInitialState() {
   const draft = readJsonStorage(STORAGE_KEYS.draft);
   if (draft) {
     state = draft;
     lastLoadedAt = formatDateTime(new Date());
     setSyncStatus("idle", "초안", "로컬 초안을 불러왔습니다.");
+  }
+
+  if (isSupabaseEnabled()) {
+    const loaded = await loadSupabaseState();
+    if (loaded) {
+      await subscribeSupabaseState();
+      return;
+    }
   }
 
   try {
@@ -431,8 +644,16 @@ function normalizeState() {
 }
 
 function initializeSelections() {
+  const params = new URLSearchParams(window.location.search);
   const firstId = state.employees[0]?.id || "";
+  const requestedEmp = params.get("emp");
+  if (requestedEmp && employeeById(requestedEmp)) ui.selectedEmployeeId = requestedEmp;
   ui.selectedEmployeeId = ui.selectedEmployeeId || firstId;
+  const requestedMode = params.get("mode");
+  if (requestedMode === "personal") {
+    ui.accessMode = "personal";
+    localStorage.setItem(STORAGE_KEYS.accessMode, ui.accessMode);
+  }
   ui.settingsEmployeeId = ui.settingsEmployeeId || ui.selectedEmployeeId;
   ui.subEmployeeId = ui.subEmployeeId || ui.selectedEmployeeId;
   ui.specialEmployeeId = ui.specialEmployeeId || ui.selectedEmployeeId;
@@ -443,10 +664,184 @@ function initializeSelections() {
 }
 
 function renderAll() {
+  if (!hasMenuAccess(currentUser()?.id, ui.activeView)) {
+    ui.activeView = "cal";
+    document.querySelectorAll(".view").forEach((section) => section.classList.remove("active"));
+    document.getElementById("view-cal")?.classList.add("active");
+  }
   renderNavigation();
   renderSidebar();
   renderActiveView();
   renderSyncStatus();
+}
+
+function getSupabaseConfig() {
+  const external = supabaseRuntimeConfig || {};
+  const local = readJsonStorage(STORAGE_KEYS.supabaseConfig) || {};
+  return Object.assign({
+    enabled: false,
+    url: "",
+    anonKey: "",
+    table: "guro_huga_state",
+    rowId: "main"
+  }, external, local);
+}
+
+async function loadExternalSupabaseConfig() {
+  try {
+    const response = await fetch(`./supabase-config.json?ts=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) return;
+    const config = await response.json();
+    if (config?.url && config?.anonKey) {
+      supabaseRuntimeConfig = Object.assign({
+        enabled: true,
+        table: "guro_huga_state",
+        rowId: "main"
+      }, config);
+    }
+  } catch (_error) {
+    // Optional deployment config. Local storage settings still work without it.
+  }
+}
+
+function saveSupabaseConfigToStorage(config) {
+  localStorage.setItem(STORAGE_KEYS.supabaseConfig, JSON.stringify(config));
+}
+
+function isSupabaseEnabled() {
+  const config = getSupabaseConfig();
+  return !!(config.enabled && config.url && config.anonKey);
+}
+
+async function loadSupabaseSdk() {
+  if (window.supabase?.createClient) return;
+  if (!supabaseSdkPromise) {
+    supabaseSdkPromise = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+      script.async = true;
+      script.onload = resolve;
+      script.onerror = () => reject(new Error("Supabase JS SDK를 불러오지 못했습니다."));
+      document.head.appendChild(script);
+    });
+  }
+  await supabaseSdkPromise;
+}
+
+async function ensureSupabaseClient() {
+  const config = getSupabaseConfig();
+  if (!isSupabaseEnabled()) return null;
+  await loadSupabaseSdk();
+  if (!window.supabase?.createClient) {
+    throw new Error("Supabase 클라이언트 CDN을 불러오지 못했습니다. 네트워크 연결 또는 배포 HTML을 확인하세요.");
+  }
+  if (!supabaseClient) {
+    supabaseClient = window.supabase.createClient(config.url, config.anonKey, {
+      realtime: { params: { eventsPerSecond: 5 } }
+    });
+  }
+  return supabaseClient;
+}
+
+function ensureSupabaseClientId() {
+  if (!supabaseClientId) {
+    supabaseClientId = `client_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(STORAGE_KEYS.supabaseClientId, supabaseClientId);
+  }
+  return supabaseClientId;
+}
+
+async function loadSupabaseState() {
+  try {
+    const config = getSupabaseConfig();
+    const client = await ensureSupabaseClient();
+    setSyncStatus("saving", "DB읽기", "Supabase에서 공유 데이터를 불러오고 있습니다.");
+    renderSyncStatus();
+    const { data, error } = await client
+      .from(config.table)
+      .select("id,data,updated_at,updated_by")
+      .eq("id", config.rowId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data?.data) {
+      setSyncStatus("idle", "DB준비", "Supabase 테이블은 연결됐지만 기본 데이터가 없습니다. 현재 데이터를 Supabase에 초기 저장하세요.");
+      renderSyncStatus();
+      return false;
+    }
+    applyingRemoteState = true;
+    state = data.data;
+    applyingRemoteState = false;
+    normalizeState();
+    initializeSelections();
+    lastLoadedAt = formatDateTime(new Date(data.updated_at || Date.now()));
+    localStorage.setItem(STORAGE_KEYS.draft, JSON.stringify(state));
+    setSyncStatus("success", "Supabase", "Supabase 공유 데이터를 불러왔습니다.");
+    renderSyncStatus();
+    return true;
+  } catch (error) {
+    applyingRemoteState = false;
+    setSyncStatus("error", "DB오류", error.message || "Supabase 데이터를 불러오지 못했습니다.");
+    renderSyncStatus();
+    return false;
+  }
+}
+
+async function saveSupabaseState(reason = "공유 저장") {
+  const config = getSupabaseConfig();
+  const client = await ensureSupabaseClient();
+  ensureSupabaseClientId();
+  setSyncStatus("saving", "DB저장", "Supabase에 공유 데이터를 저장하고 있습니다.");
+  renderSyncStatus();
+  const payload = {
+    id: config.rowId,
+    data: state,
+    updated_by: supabaseClientId,
+    updated_at: new Date().toISOString()
+  };
+  const { error } = await client
+    .from(config.table)
+    .upsert(payload, { onConflict: "id" });
+  if (error) throw error;
+  lastSavedAt = formatDateTime(new Date());
+  archiveSnapshot(reason);
+  setSyncStatus("success", "DB완료", "Supabase 저장이 완료되었습니다. 다른 브라우저에도 실시간 반영됩니다.");
+  renderSyncStatus();
+}
+
+async function subscribeSupabaseState() {
+  if (!isSupabaseEnabled()) return;
+  const config = getSupabaseConfig();
+  const client = await ensureSupabaseClient();
+  if (supabaseChannel) {
+    await client.removeChannel(supabaseChannel);
+    supabaseChannel = null;
+  }
+  supabaseChannel = client
+    .channel("guro-huga-state")
+    .on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: config.table,
+      filter: `id=eq.${config.rowId}`
+    }, (payload) => {
+      const incoming = payload.new?.data;
+      if (!incoming || payload.new?.updated_by === supabaseClientId) return;
+      applyingRemoteState = true;
+      state = incoming;
+      normalizeState();
+      initializeSelections();
+      localStorage.setItem(STORAGE_KEYS.draft, JSON.stringify(state));
+      applyingRemoteState = false;
+      lastLoadedAt = formatDateTime(new Date(payload.new?.updated_at || Date.now()));
+      setSyncStatus("success", "실시간", "다른 사용자의 변경사항이 반영되었습니다.");
+      renderAll();
+    })
+    .subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        setSyncStatus("success", "실시간", "Supabase 실시간 구독이 연결되었습니다.");
+        renderSyncStatus();
+      }
+    });
 }
 
 function renderActiveView() {
@@ -546,12 +941,14 @@ function renderSidebar() {
   document.getElementById("emp-sel").innerHTML = state.employees
     .map((employee) => `<option value="${employee.id}" ${employee.id === ui.selectedEmployeeId ? "selected" : ""}>${employee.name}</option>`)
     .join("");
+  document.getElementById("emp-sel").disabled = ui.accessMode !== "admin";
 
   const avatar = document.getElementById("sb-avatar");
   avatar.style.background = selected?.color || COLORS[0];
   avatar.innerHTML = avatarContent(selected);
   document.getElementById("sb-name").textContent = selected?.name || "";
-  document.getElementById("sb-meta").textContent = [selected?.dept, selected?.role].filter(Boolean).join(" · ");
+  document.getElementById("sb-meta").textContent = [selected?.dept, selected?.role, accessModeLabel()].filter(Boolean).join(" · ");
+  renderAccessModePanel();
 }
 
 function renderDashboard() {
@@ -716,6 +1113,13 @@ function renderCalendarView() {
     .reduce((sum, record) => sum + leaveDelta(record.type), 0);
   document.getElementById("cal-heading").textContent = `${employee.name} · ${ui.currentYear}년 ${ui.currentMonth + 1}월`;
   document.getElementById("month-label").textContent = `${ui.currentYear}년 ${ui.currentMonth + 1}월`;
+  document.querySelector("#view-cal .legend").innerHTML = `
+    <span><i class="dot blue"></i><em>연</em> 연차</span>
+    <span><i class="dot amber"></i><em>반</em> 반차/반반차</span>
+    <span><i class="dot purple"></i><em>교</em> 교육</span>
+    <span><i class="dot green"></i><em>출</em> 출장</span>
+    <span><i class="dot red"></i><em>공</em> 공휴일/대체</span>
+  `;
   document.getElementById("personal-kpis").innerHTML = [
     kpiCard("blue", "올해 발생", summary.total.toFixed(1), "일", `${ui.currentYear}년 기준`),
     kpiCard("green", "사용", summary.used.toFixed(1), "일", "연차 + 반차"),
@@ -757,12 +1161,14 @@ function renderHistory() {
 }
 
 function renderSettings() {
+  if (ui.accessMode !== "admin") ui.settingsEmployeeId = ui.selectedEmployeeId;
   const selected = employeeById(ui.settingsEmployeeId) || currentUser();
   if (!selected) return;
   ui.settingsEmployeeId = selected.id;
   document.getElementById("set-emp-sel").innerHTML = state.employees
     .map((employee) => `<option value="${employee.id}" ${employee.id === selected.id ? "selected" : ""}>${employee.name}</option>`)
     .join("");
+  document.getElementById("set-emp-sel").disabled = ui.accessMode !== "admin";
 
   document.getElementById("join-date").value = selected.joinDate || "";
   document.getElementById("fiscal-year-month").value = String(selected.fiscalYearMonth || 1);
@@ -773,6 +1179,10 @@ function renderSettings() {
   document.getElementById("leave-unit-price").value = selected.leaveUnitPrice || "";
   document.getElementById("average-daily-wage").value = selected.averageDailyWage || "";
   document.getElementById("employment-rules").value = state.settings.employmentRules || defaultEmploymentRules();
+  ["monthly-base-pay", "work-hours-per-day", "monthly-standard-hours", "leave-unit-price", "average-daily-wage", "employment-rules"].forEach((id) => {
+    const input = document.getElementById(id);
+    if (input) input.disabled = ui.accessMode !== "admin";
+  });
   document.getElementById("rules-last-updated").textContent = state.updatedAt
     ? `마지막 수정: ${state.updatedAt}`
     : "마지막 수정 정보가 없습니다.";
@@ -841,6 +1251,7 @@ function renderEmployees() {
         <div class="card-actions">
           <button class="action-link" type="button" data-emp-open="${employee.id}">달력 보기</button>
           <button class="action-link" type="button" data-emp-edit="${employee.id}">수정</button>
+          <button class="action-link" type="button" data-copy-personal-link="${employee.id}">개인링크</button>
         </div>
       </div>
     `;
@@ -856,7 +1267,7 @@ function renderEmployees() {
         <td>${summary.remain.toFixed(1)}일</td>
         <td>${latest}</td>
         <td><span class="tag ${tone}">${summary.alertLabel}</span></td>
-        <td><button class="action-link" type="button" data-emp-open="${employee.id}">달력 보기</button> <button class="action-link" type="button" data-emp-edit="${employee.id}">수정</button></td>
+        <td><button class="action-link" type="button" data-emp-open="${employee.id}">달력 보기</button> <button class="action-link" type="button" data-emp-edit="${employee.id}">수정</button> <button class="action-link" type="button" data-copy-personal-link="${employee.id}">개인링크</button></td>
       </tr>
     `;
   }).join("") || `<tr><td colspan="6">${emptyState("조건에 맞는 직원이 없습니다.")}</td></tr>`;
@@ -1623,23 +2034,23 @@ function renderManager() {
     const matchesUsage = summary.usagePercent >= usageMin && summary.usagePercent <= usageMax;
     return matchesSearch && matchesDept && matchesRisk && matchesUsage;
   });
-  const sorted = [...filtered];
+  let sorted = [...rows];
   const sortMode = ui.managerFilter.sort || "name";
   if (sortMode === "risk") {
     const order = { urgent: 0, warning: 1, safe: 2 };
-    sorted.sort((a, b) => order[employeeSummary(a.id, ui.managerYear).alertLevel] - order[employeeSummary(b.id, ui.managerYear).alertLevel]);
+    sorted.sort((a, b) => order[a.summary.alertLevel] - order[b.summary.alertLevel]);
   } else if (sortMode === "remainAsc") {
-    sorted.sort((a, b) => employeeSummary(a.id, ui.managerYear).remain - employeeSummary(b.id, ui.managerYear).remain);
+    sorted.sort((a, b) => a.summary.remain - b.summary.remain);
   } else if (sortMode === "remainDesc") {
-    sorted.sort((a, b) => employeeSummary(b.id, ui.managerYear).remain - employeeSummary(a.id, ui.managerYear).remain);
+    sorted.sort((a, b) => b.summary.remain - a.summary.remain);
   } else {
-    sorted.sort((a, b) => a.name.localeCompare(b.name, "ko"));
+    sorted.sort((a, b) => a.employee.name.localeCompare(b.employee.name, "ko"));
   }
-  const riskCount = sorted.filter((employee) => {
-    const level = employeeSummary(employee.id, ui.managerYear).alertLevel;
+  const riskCount = sorted.filter(({ summary }) => {
+    const level = summary.alertLevel;
     return level === "urgent" || level === "warning";
   }).length;
-  const avgRemain = sorted.length ? round(sorted.reduce((sum, employee) => sum + employeeSummary(employee.id, ui.managerYear).remain, 0) / sorted.length) : 0;
+  const avgRemain = sorted.length ? round(sorted.reduce((sum, row) => sum + row.summary.remain, 0) / sorted.length) : 0;
   document.getElementById("manager-summary").innerHTML = [
     kpiCard("white", "검색 결과", `${sorted.length}`, "명", "필터 기준"),
     kpiCard("red", "위험 인원", `${riskCount}`, "명", "주의+긴급"),
@@ -1647,7 +2058,7 @@ function renderManager() {
     kpiCard("blue", "정렬 기준", sortMode, "", "현재 설정")
   ].join("");
 
-  document.getElementById("manager-body").innerHTML = rows.map(({ employee, summary, latest }) => `
+  document.getElementById("manager-body").innerHTML = sorted.map(({ employee, summary, latest }) => `
     <tr>
       <td>${employeeCell(employee)}</td>
       <td>${employee.dept || "-"}</td>
@@ -1676,6 +2087,7 @@ function renderSyncPage() {
   document.getElementById("github-token").value = localStorage.getItem(STORAGE_KEYS.token) || "";
   document.getElementById("admin-password").value = "";
   document.getElementById("auto-save-toggle").checked = !!getSyncPrefs().autoSave;
+  hydrateSupabaseForm();
   document.getElementById("last-saved-at").textContent = lastSavedAt || "없음";
   document.getElementById("last-loaded-at").textContent = lastLoadedAt || "없음";
   document.getElementById("sync-detail-status").textContent = syncStatus.label;
@@ -1706,6 +2118,48 @@ function switchView(view) {
   document.getElementById(`view-${view}`)?.classList.add("active");
   renderNavigation();
   renderActiveView();
+}
+
+function accessModeLabel() {
+  return ui.accessMode === "admin" ? "관리자 모드" : "개인 모드";
+}
+
+function renderAccessModePanel() {
+  const panel = document.getElementById("access-mode-panel");
+  if (!panel) return;
+  panel.querySelectorAll(".mode-btn").forEach((button) => {
+    button.classList.toggle("active", button.dataset.mode === ui.accessMode);
+  });
+  const help = document.getElementById("access-mode-help");
+  if (help) {
+    help.textContent = ui.accessMode === "admin"
+      ? "전체 직원, 권한, 동기화, 엑셀 입출력을 관리합니다."
+      : "현재 선택된 본인 휴가와 신청서만 표시합니다.";
+  }
+}
+
+async function setAccessMode(mode) {
+  if (mode === "admin") {
+    const ok = await requestAdminAccess();
+    if (!ok) return;
+  }
+  ui.accessMode = mode === "admin" ? "admin" : "personal";
+  localStorage.setItem(STORAGE_KEYS.accessMode, ui.accessMode);
+  if (!hasMenuAccess(currentUser()?.id, ui.activeView)) ui.activeView = "cal";
+  renderAll();
+}
+
+async function requestAdminAccess() {
+  const savedHash = localStorage.getItem(STORAGE_KEYS.adminPw);
+  if (!savedHash) return true;
+  const raw = prompt("관리자 비밀번호를 입력하세요.");
+  if (!raw) return false;
+  const hash = await digestText(raw);
+  if (hash !== savedHash) {
+    alert("관리자 비밀번호가 맞지 않습니다.");
+    return false;
+  }
+  return true;
 }
 
 function renderYearTabs(containerId, selectedYear, onClick) {
@@ -1739,14 +2193,20 @@ function renderCalendarGrid() {
     if (holiday) classes.push("holiday");
     if (isSubHoliday) classes.push("sub");
     if (records.some((record) => record.type === "연차")) classes.push("leave");
-    if (records.some((record) => record.type !== "연차")) classes.push("half");
+    if (records.some((record) => record.type === "반차" || record.type === "반반차")) classes.push("half");
+    if (records.some((record) => record.type === "교육")) classes.push("edu");
+    if (records.some((record) => record.type === "출장")) classes.push("trip");
     const leaveCount = records.filter((record) => record.type === "연차").length;
-    const halfCount = records.filter((record) => record.type !== "연차").length;
+    const halfCount = records.filter((record) => record.type === "반차" || record.type === "반반차").length;
+    const eduCount = records.filter((record) => record.type === "교육").length;
+    const tripCount = records.filter((record) => record.type === "출장").length;
     const tags = [];
-    if (holiday) tags.push(`<span class="day-tag holiday">★ 공휴일</span>`);
-    else if (isSubHoliday) tags.push(`<span class="day-tag sub">⇄ 대체휴일</span>`);
-    if (leaveCount) tags.push(`<span class="day-tag leave">🗓 연차 ${leaveCount}</span>`);
-    if (halfCount) tags.push(`<span class="day-tag half">◐ 반차 ${halfCount}</span>`);
+    if (holiday) tags.push(`<span class="day-tag holiday">${HOLIDAYS[key]}</span>`);
+    else if (isSubHoliday) tags.push(`<span class="day-tag sub">대체휴일</span>`);
+    if (leaveCount) tags.push(`<span class="day-tag leave">연차 ${leaveCount}</span>`);
+    if (halfCount) tags.push(`<span class="day-tag half">반차 ${halfCount}</span>`);
+    if (eduCount) tags.push(`<span class="day-tag edu">교육 ${eduCount}</span>`);
+    if (tripCount) tags.push(`<span class="day-tag trip">출장 ${tripCount}</span>`);
 
     cells.push(`
       <button class="${classes.join(" ")}" type="button" data-date="${key}">
@@ -1777,11 +2237,19 @@ function renderRecordRow(record) {
     <div class="row-item">
       <div class="row-main">
         <div class="row-title">${record.date} · ${record.type}</div>
-        <div class="row-desc">사용량 ${leaveDelta(record.type)}일 · ${record.memo || "메모 없음"} · 등록 ${record.createdAt || record.updatedAt || "-"}</div>
+        <div class="row-desc">${recordUsageLabel(record)} · ${record.memo || "메모 없음"} · 등록 ${record.createdAt || record.updatedAt || "-"}</div>
       </div>
-      <button class="action-link" type="button" data-record-delete="${record.id}">삭제</button>
+      <div class="row-item-actions">
+        <button class="action-link" type="button" data-record-print="${record.id}">신청서</button>
+        <button class="action-link" type="button" data-record-delete="${record.id}">삭제</button>
+      </div>
     </div>
   `;
+}
+
+function recordUsageLabel(record) {
+  const delta = leaveDelta(record.type);
+  return delta ? `연차 차감 ${delta}일` : "연차 차감 없음";
 }
 
 function renderSubRow(item) {
@@ -1948,6 +2416,7 @@ function employeeSummary(empId, year) {
 function leaveDelta(type) {
   if (type === "반차") return 0.5;
   if (type === "반반차") return 0.25;
+  if (["교육", "출장", "개인일정"].includes(type)) return 0;
   return 1;
 }
 
@@ -1996,7 +2465,7 @@ function touchState(action) {
   state.updatedAt = formatDateTime(new Date());
   appendAudit(action);
   localStorage.setItem(STORAGE_KEYS.draft, JSON.stringify(state));
-  queueAutoSave();
+  if (!applyingRemoteState) queueAutoSave();
   renderSyncStatus();
 }
 
@@ -2014,8 +2483,29 @@ function queueAutoSave() {
 }
 
 async function saveSharedNow() {
+  if (ui.accessMode !== "admin") {
+    setSyncStatus("error", "권한없음", "공유 저장은 관리자 모드에서만 가능합니다.");
+    renderSyncStatus();
+    return;
+  }
   if (saveInFlight) {
     saveQueued = true;
+    return;
+  }
+  if (isSupabaseEnabled()) {
+    saveInFlight = true;
+    try {
+      await saveSupabaseState("Supabase 저장");
+    } catch (error) {
+      setSyncStatus("error", "DB오류", error.message || "Supabase 저장 중 오류가 발생했습니다.");
+      renderSyncStatus();
+    } finally {
+      saveInFlight = false;
+      if (saveQueued) {
+        saveQueued = false;
+        saveSharedNow();
+      }
+    }
     return;
   }
   const token = localStorage.getItem(STORAGE_KEYS.token);
@@ -2030,6 +2520,7 @@ async function saveSharedNow() {
   renderSyncStatus();
 
   try {
+    await refreshGithubSha();
     const body = {
       message: `Update shared data ${new Date().toISOString()}`,
       content: btoa(unescape(encodeURIComponent(JSON.stringify(state, null, 2)))),
@@ -2044,6 +2535,7 @@ async function saveSharedNow() {
       },
       body: JSON.stringify(body)
     });
+    if (response.status === 409) throw new Error("다른 사용자의 변경사항이 먼저 저장되었습니다. 공유 데이터 다시 읽기 후 다시 저장하세요.");
     if (!response.ok) throw new Error(`저장 실패 (${response.status})`);
     const payload = await response.json();
     githubSha = payload.content?.sha || githubSha;
@@ -2065,6 +2557,14 @@ async function saveSharedNow() {
 async function reloadFromRemote() {
   setSyncStatus("saving", "새로고침", "공유 데이터를 다시 불러오고 있습니다.");
   renderSyncStatus();
+  if (isSupabaseEnabled()) {
+    const loaded = await loadSupabaseState();
+    if (loaded) {
+      await subscribeSupabaseState();
+      renderAll();
+    }
+    return;
+  }
   try {
     const response = await fetch(`./data/app-data.json?ts=${Date.now()}`, { cache: "no-store" });
     if (!response.ok) throw new Error(`공유 파일 로딩 실패 (${response.status})`);
@@ -2089,6 +2589,38 @@ function updateRepoFields() {
   touchState("GitHub 연결 정보 수정");
 }
 
+function hydrateSyncForm() {
+  const mapping = {
+    "repo-owner": state.repo.owner,
+    "repo-name": state.repo.name,
+    "repo-branch": state.repo.branch,
+    "repo-path": state.repo.dataPath
+  };
+  Object.entries(mapping).forEach(([id, value]) => {
+    const input = document.getElementById(id);
+    if (input) input.value = value || "";
+  });
+  const tokenInput = document.getElementById("github-token");
+  if (tokenInput) tokenInput.value = localStorage.getItem(STORAGE_KEYS.token) || "";
+  const autoSave = document.getElementById("auto-save-toggle");
+  if (autoSave) autoSave.checked = !!getSyncPrefs().autoSave;
+  hydrateSupabaseForm();
+}
+
+function hydrateSupabaseForm() {
+  const config = getSupabaseConfig();
+  const enabled = document.getElementById("supabase-enabled");
+  const url = document.getElementById("supabase-url");
+  const key = document.getElementById("supabase-anon-key");
+  const table = document.getElementById("supabase-table");
+  const rowId = document.getElementById("supabase-row-id");
+  if (enabled) enabled.checked = !!config.enabled;
+  if (url) url.value = config.url || "";
+  if (key) key.value = config.anonKey || "";
+  if (table) table.value = config.table || "guro_huga_state";
+  if (rowId) rowId.value = config.rowId || "main";
+}
+
 function saveToken() {
   const token = document.getElementById("github-token").value.trim();
   if (!token) {
@@ -2105,6 +2637,62 @@ function clearToken() {
   document.getElementById("github-token").value = "";
   setSyncStatus("idle", "토큰삭제", "GitHub 토큰을 삭제했습니다.");
   renderSyncStatus();
+}
+
+async function saveSupabaseConfig() {
+  const config = {
+    enabled: !!document.getElementById("supabase-enabled")?.checked,
+    url: document.getElementById("supabase-url")?.value.trim() || "",
+    anonKey: document.getElementById("supabase-anon-key")?.value.trim() || "",
+    table: document.getElementById("supabase-table")?.value.trim() || "guro_huga_state",
+    rowId: document.getElementById("supabase-row-id")?.value.trim() || "main"
+  };
+  if (config.enabled && (!config.url || !config.anonKey)) {
+    alert("Supabase URL과 anon key를 입력하세요.");
+    return;
+  }
+  supabaseClient = null;
+  saveSupabaseConfigToStorage(config);
+  setSyncStatus("saving", "DB연결", "Supabase 연결을 확인하고 있습니다.");
+  renderSyncStatus();
+  if (config.enabled) {
+    const loaded = await loadSupabaseState();
+    await subscribeSupabaseState();
+    if (!loaded) {
+      setSyncStatus("idle", "DB준비", "연결은 저장했습니다. 비어 있으면 '현재 데이터 초기 저장'을 실행하세요.");
+    }
+  } else {
+    setSyncStatus("idle", "GitHub", "Supabase 저장을 끄고 기존 공유 JSON 방식을 사용합니다.");
+  }
+  renderAll();
+}
+
+function clearSupabaseConfig() {
+  localStorage.removeItem(STORAGE_KEYS.supabaseConfig);
+  supabaseClient = null;
+  supabaseChannel = null;
+  hydrateSupabaseForm();
+  setSyncStatus("idle", "연결해제", "Supabase 연결 설정을 삭제했습니다.");
+  renderSyncStatus();
+}
+
+async function seedSupabaseFromCurrentState() {
+  if (ui.accessMode !== "admin") {
+    setSyncStatus("error", "권한없음", "Supabase 초기 저장은 관리자 모드에서만 가능합니다.");
+    renderSyncStatus();
+    return;
+  }
+  if (!isSupabaseEnabled()) {
+    await saveSupabaseConfig();
+    if (!isSupabaseEnabled()) return;
+  }
+  try {
+    await saveSupabaseState("Supabase 초기 저장");
+    await subscribeSupabaseState();
+  } catch (error) {
+    setSyncStatus("error", "DB오류", error.message || "Supabase 초기 저장 중 오류가 발생했습니다.");
+    renderSyncStatus();
+  }
 }
 
 async function saveAdminPassword() {
@@ -2204,7 +2792,7 @@ function downloadJson(filename, data) {
 }
 
 function openRecordModal() {
-  openModal("휴가 기록 추가", "직원과 날짜를 선택해 휴가를 등록합니다.", `
+  openModal("휴가 / 일정 기록 추가", "휴가, 교육, 출장 일정을 달력에 등록합니다.", `
     <label class="field-label" for="record-emp">직원</label>
     <select id="record-emp" class="field">${state.employees.map((employee) => `<option value="${employee.id}" ${employee.id === ui.selectedEmployeeId ? "selected" : ""}>${employee.name}</option>`).join("")}</select>
     <label class="field-label" for="record-date">날짜</label>
@@ -2214,12 +2802,128 @@ function openRecordModal() {
       <option value="연차">연차</option>
       <option value="반차">반차</option>
       <option value="반반차">반반차</option>
+      <option value="교육">교육</option>
+      <option value="출장">출장</option>
+      <option value="개인일정">개인일정</option>
     </select>
     <label class="field-label" for="record-memo">메모</label>
-    <input id="record-memo" class="field" type="text" placeholder="예: 개인사유">
+    <input id="record-memo" class="field" type="text" placeholder="예: 보수교육, 외부 출장, 개인사유">
     <button id="record-save-btn" class="btn primary" type="button">저장</button>
   `);
   document.getElementById("record-save-btn").addEventListener("click", saveRecordFromModal);
+}
+
+function openLeavePrintModal(recordId = "") {
+  const records = [...state.records].sort((left, right) => (right.date || "").localeCompare(left.date || ""));
+  const selectedRecord = recordId || records.find((record) => record.empId === ui.selectedEmployeeId)?.id || records[0]?.id || "";
+  openModal("휴가신청서 출력", "한글 휴가신청서 양식에 맞춘 인쇄용 보고서를 만듭니다.", `
+    <label class="field-label" for="print-record">신청 내역</label>
+    <select id="print-record" class="field">
+      ${records.map((record) => {
+        const employee = employeeById(record.empId);
+        return `<option value="${record.id}" ${record.id === selectedRecord ? "selected" : ""}>${record.date} · ${employee?.name || "직원"} · ${record.type}</option>`;
+      }).join("")}
+    </select>
+    <label class="field-label" for="print-reason">신청 사유</label>
+    <input id="print-reason" class="field" type="text" value="${escapeHtml(records.find((record) => record.id === selectedRecord)?.memo || "개인사유")}">
+    <label class="field-label" for="print-approver">결재/확인</label>
+    <input id="print-approver" class="field" type="text" placeholder="예: 센터장">
+    <label class="field-label" for="print-transfer">업무 이관 사항</label>
+    <input id="print-transfer" class="field" type="text" placeholder="업무 이관 사항이 없으면 비워두세요">
+    <div class="hint-box">현재 저장소에는 실제 HWPX 원본 양식 파일이 없어서, 브라우저 인쇄 화면을 HWPX 휴가신청서처럼 바로 출력할 수 있게 구성했습니다. 인쇄 대상을 PDF로 선택하면 전자결재 첨부용 파일로 저장할 수 있습니다.</div>
+    <button id="leave-print-btn" class="btn primary" type="button">인쇄 화면 열기</button>
+  `);
+  document.getElementById("leave-print-btn").addEventListener("click", () => {
+    const record = state.records.find((item) => item.id === document.getElementById("print-record").value);
+    if (!record) {
+      alert("출력할 휴가 기록이 없습니다.");
+      return;
+    }
+    printLeaveApplication(record, {
+      reason: document.getElementById("print-reason").value.trim(),
+      approver: document.getElementById("print-approver").value.trim(),
+      transfer: document.getElementById("print-transfer").value.trim()
+    });
+  });
+}
+
+function printLeaveApplication(record, options = {}) {
+  const employee = employeeById(record.empId);
+  const year = Number((record.date || "").slice(0, 4)) || ui.currentYear;
+  const summary = employeeSummary(record.empId, year);
+  const usedDays = leaveDelta(record.type);
+  const printWindow = window.open("", "_blank", "width=900,height=1100");
+  if (!printWindow) {
+    alert("팝업이 차단되었습니다. 브라우저 팝업 허용 후 다시 시도하세요.");
+    return;
+  }
+  const today = formatDateKey(new Date());
+  const periodText = leaveApplicationPeriodText(record);
+  printWindow.document.write(`
+    <!doctype html>
+    <html lang="ko">
+    <head>
+      <meta charset="utf-8">
+      <title>휴가신청서_${escapeHtml(employee?.name || "")}_${record.date}</title>
+      <style>
+        @page { size: A4; margin: 18mm; }
+        * { box-sizing: border-box; }
+        body { font-family: "Malgun Gothic", "Noto Sans KR", sans-serif; color: #111; margin: 0; }
+        .form { width: 100%; border: 2px solid #111; padding: 18px; }
+        h1 { text-align: center; margin: 8px 0 22px; font-size: 28px; letter-spacing: 6px; }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        th, td { border: 1px solid #111; padding: 10px 8px; height: 42px; vertical-align: middle; font-size: 15px; }
+        th { width: 18%; background: #f3f3f3; font-weight: 700; }
+        .approval th, .approval td { text-align: center; height: 58px; }
+        .section-title { margin: 18px 0 8px; font-weight: 700; }
+        .reason { height: 118px; vertical-align: top; line-height: 1.7; }
+        .footer { margin-top: 28px; text-align: center; line-height: 2; }
+        .sign { margin-top: 22px; text-align: right; font-size: 17px; }
+        .small { font-size: 13px; color: #333; }
+        @media print { button { display: none; } .form { border-width: 2px; } }
+      </style>
+    </head>
+    <body>
+      <button onclick="window.print()" style="margin:0 0 12px;padding:10px 14px;">인쇄</button>
+      <div class="form">
+        <h1>휴 가 신 청 서</h1>
+        <table class="approval">
+          <tr><th>담당</th><th>팀장</th><th>센터장</th><th>비고</th></tr>
+          <tr><td></td><td></td><td>${escapeHtml(options.approver || "")}</td><td></td></tr>
+        </table>
+        <div class="section-title">1. 신청자 정보</div>
+        <table>
+          <tr><th>소속</th><td>${escapeHtml(employee?.dept || "")}</td><th>직책</th><td>${escapeHtml(employee?.role || "")}</td></tr>
+          <tr><th>성명</th><td>${escapeHtml(employee?.name || "")}</td><th>입사일</th><td>${escapeHtml(employee?.joinDate || "")}</td></tr>
+        </table>
+        <div class="section-title">2. 휴가 신청 내용</div>
+        <table>
+          <tr><th>휴가 구분</th><td>${escapeHtml(record.type || "")}</td><th>신청일수</th><td>${usedDays}일</td></tr>
+          <tr><th>휴가 기간</th><td colspan="3">${escapeHtml(periodText)}</td></tr>
+          <tr><th>신청 사유</th><td colspan="3" class="reason">${escapeHtml(options.reason || record.memo || "개인사유")}</td></tr>
+          <tr><th>업무 이관</th><td colspan="3">${escapeHtml(options.transfer || "해당 없음")}</td></tr>
+          <tr><th>연차 현황</th><td colspan="3">발생 ${summary.total.toFixed(1)}일 / 사용 ${summary.used.toFixed(1)}일 / 잔여 ${summary.remain.toFixed(1)}일</td></tr>
+        </table>
+        <div class="footer">
+          위와 같이 휴가를 신청하오니 허가하여 주시기 바랍니다.<br>
+          ${today}
+        </div>
+        <div class="sign">신청인: ${escapeHtml(employee?.name || "")} (인)</div>
+      </div>
+    </body>
+    </html>
+  `);
+  printWindow.document.close();
+  printWindow.focus();
+}
+
+function leaveApplicationPeriodText(record) {
+  const date = new Date(record.date);
+  const weekday = ["일", "월", "화", "수", "목", "금", "토"][date.getDay()] || "";
+  const dayText = `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일(${weekday}요일)`;
+  if (record.type === "반반차") return `${dayText} 16시 30분 ~ 18시 30분`;
+  if (record.type === "반차") return `${dayText} 14시 30분 ~ 18시 30분`;
+  return dayText;
 }
 
 function saveRecordFromModal() {
@@ -2471,19 +3175,24 @@ function deleteSpecialLeave(id) {
 }
 
 function saveSettingsFromView() {
+  if (ui.accessMode !== "admin") ui.settingsEmployeeId = ui.selectedEmployeeId;
   const employee = employeeById(ui.settingsEmployeeId);
   if (!employee) return;
   employee.joinDate = document.getElementById("join-date").value;
   employee.fiscalYearMonth = Number(document.getElementById("fiscal-year-month").value || 1);
   employee.resignationDate = document.getElementById("resignation-date").value;
-  employee.monthlyBasePay = Number(document.getElementById("monthly-base-pay").value || 0);
-  employee.workHoursPerDay = Number(document.getElementById("work-hours-per-day").value || state.settings.defaultWorkHoursPerDay || 8);
-  employee.leaveUnitPrice = Number(document.getElementById("leave-unit-price").value || 0);
-  employee.averageDailyWage = Number(document.getElementById("average-daily-wage").value || 0);
-  state.settings.monthlyStandardHours = Number(document.getElementById("monthly-standard-hours").value || 209);
-  state.settings.employmentRules = document.getElementById("employment-rules").value.trim();
+  if (ui.accessMode === "admin") {
+    employee.monthlyBasePay = Number(document.getElementById("monthly-base-pay").value || 0);
+    employee.workHoursPerDay = Number(document.getElementById("work-hours-per-day").value || state.settings.defaultWorkHoursPerDay || 8);
+    employee.leaveUnitPrice = Number(document.getElementById("leave-unit-price").value || 0);
+    employee.averageDailyWage = Number(document.getElementById("average-daily-wage").value || 0);
+    state.settings.monthlyStandardHours = Number(document.getElementById("monthly-standard-hours").value || 209);
+    state.settings.employmentRules = document.getElementById("employment-rules").value.trim();
+  }
   document.querySelectorAll("[data-total-year]").forEach((input) => {
-    state.totals[`${input.dataset.totalEmp}_${input.dataset.totalYear}`] = Number(input.value || 0);
+    if (ui.accessMode === "admin" || input.dataset.totalEmp === ui.selectedEmployeeId) {
+      state.totals[`${input.dataset.totalEmp}_${input.dataset.totalYear}`] = Number(input.value || 0);
+    }
   });
   touchState("연차 설정 저장");
   renderSettings();
@@ -2719,7 +3428,7 @@ function defaultWelfareStandard() {
 function isCurrentAdmin() {
   const current = currentUser();
   if (!current) return false;
-  return (state.perms[current.id]?.grade || "normal") === "admin";
+  return ui.accessMode === "admin" && (state.perms[current.id]?.grade || "normal") === "admin";
 }
 
 function getHrRecord(empId, year) {
@@ -2780,7 +3489,7 @@ async function digestText(text) {
 function confirmAdminAccess() {
   const savedHash = localStorage.getItem(STORAGE_KEYS.adminPw);
   if (!savedHash) return true;
-  return false;
+  return ui.accessMode === "admin";
 }
 
 function openModal(title, subtitle, bodyHtml) {
@@ -2852,6 +3561,104 @@ function exportExcelSnapshot() {
   XLSX.writeFile(workbook, `guro_huga_export_${Date.now()}.xlsx`);
 }
 
+function exportLeaveRecordsExcel() {
+  if (typeof XLSX === "undefined") {
+    alert("엑셀 라이브러리를 불러오지 못했습니다.");
+    return;
+  }
+  const rows = state.records.map((record) => {
+    const employee = employeeById(record.empId) || {};
+    return {
+      ID: record.id,
+      직원ID: record.empId,
+      이름: employee.name || "",
+      부서: employee.dept || "",
+      직책: employee.role || "",
+      날짜: record.date,
+      구분: record.type,
+      차감일수: leaveDelta(record.type),
+      메모: record.memo || "",
+      등록일시: record.createdAt || record.updatedAt || ""
+    };
+  });
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), "휴가목록");
+  XLSX.writeFile(workbook, `guro_huga_leave_records_${Date.now()}.xlsx`);
+}
+
+function importLeaveRecordsExcel(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (typeof XLSX === "undefined") {
+    alert("엑셀 라이브러리를 불러오지 못했습니다.");
+    event.target.value = "";
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (loadEvent) => {
+    try {
+      const workbook = XLSX.read(loadEvent.target.result, { type: "array" });
+      const imported = workbook.Sheets["휴가 시트"]
+        ? parsePersonalLeaveWorkbook(workbook.Sheets["휴가 시트"])
+        : parseStandardLeaveWorkbook(workbook);
+      if (!imported.length) throw new Error("반영할 휴가목록 행이 없습니다. 직원ID 또는 이름, 날짜, 구분 열을 확인하세요.");
+      const importedIds = new Set(imported.map((row) => row.id));
+      state.records = state.records.filter((record) => !importedIds.has(record.id)).concat(imported);
+      touchState(`휴가목록 엑셀 업로드 ${imported.length}건`);
+      renderAll();
+      alert(`휴가목록 ${imported.length}건을 반영했습니다.`);
+    } catch (error) {
+      alert(`휴가목록 엑셀 업로드 오류: ${error.message}`);
+    } finally {
+      event.target.value = "";
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function parseStandardLeaveWorkbook(workbook) {
+  const sheet = workbook.Sheets["휴가목록"] || workbook.Sheets["사용내역"] || workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+  return rows.map((row, index) => ({
+    id: String(row["ID"] || `leave_${Date.now()}_${index}`),
+    empId: resolveEmployeeIdFromExcel(row),
+    date: normalizeDateCell(row["날짜"]),
+    type: String(row["구분"] || leaveTypeFromDays(row["사용개수"] || row["차감일수"] || 1)).trim() || "연차",
+    memo: String(row["메모"] || "").trim()
+  })).filter((row) => row.empId && row.date);
+}
+
+function parsePersonalLeaveWorkbook(sheet) {
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false });
+  const imported = [];
+  const seen = new Set();
+  rows.forEach((row, rowIndex) => {
+    [[9, 10], [16, 17]].forEach(([dateIndex, daysIndex]) => {
+      const date = normalizeDateCell(row[dateIndex]);
+      const days = Number(row[daysIndex] || 0);
+      if (!date || !days) return;
+      const key = `${date}_${days}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      imported.push({
+        id: `leave_${date.replaceAll("-", "")}_${String(days).replace(".", "")}_${rowIndex}`,
+        empId: ui.selectedEmployeeId,
+        date,
+        type: leaveTypeFromDays(days),
+        memo: "개인 휴가 관리표 반영"
+      });
+    });
+  });
+  return imported;
+}
+
+function leaveTypeFromDays(days) {
+  const value = Number(days || 0);
+  if (value === 0.25) return "반반차";
+  if (value === 0.5) return "반차";
+  return "연차";
+}
+
 function importExcelSnapshot(event) {
   const file = event.target.files?.[0];
   if (!file) return;
@@ -2865,7 +3672,7 @@ function importExcelSnapshot(event) {
     try {
       const workbook = XLSX.read(loadEvent.target.result, { type: "array" });
       const employeeRows = XLSX.utils.sheet_to_json(workbook.Sheets["직원목록"] || {}, { defval: "" });
-      const recordRows = XLSX.utils.sheet_to_json(workbook.Sheets["사용내역"] || {}, { defval: "" });
+      const recordRows = XLSX.utils.sheet_to_json(workbook.Sheets["사용내역"] || workbook.Sheets["휴가목록"] || {}, { defval: "" });
       const subRows = XLSX.utils.sheet_to_json(workbook.Sheets["대체휴가"] || {}, { defval: "" });
       const specialRows = XLSX.utils.sheet_to_json(workbook.Sheets["특별휴가"] || {}, { defval: "" });
       const totalRows = XLSX.utils.sheet_to_json(workbook.Sheets["연차합계"] || {}, { defval: "" });
@@ -2879,7 +3686,7 @@ function importExcelSnapshot(event) {
       mergeTotalsFromExcel(totalRows);
       state.records = recordRows.map((row, index) => ({
         id: String(row["ID"] || `record_${index}`),
-        empId: String(row["직원ID"] || "").trim(),
+        empId: resolveEmployeeIdFromExcel(row),
         date: normalizeDateCell(row["날짜"]),
         type: String(row["구분"] || "연차").trim() || "연차",
         memo: String(row["메모"] || "").trim()
@@ -2904,6 +3711,14 @@ function importExcelSnapshot(event) {
     }
   };
   reader.readAsArrayBuffer(file);
+}
+
+function resolveEmployeeIdFromExcel(row) {
+  const direct = String(row["직원ID"] || row["empId"] || "").trim();
+  if (direct) return direct;
+  const name = String(row["이름"] || "").trim();
+  const found = state.employees.find((employee) => employee.name === name);
+  return found?.id || "";
 }
 
 function exportCategoryExcel() {
@@ -3463,7 +4278,23 @@ function mergeSpecialLeavesFromExcel(rows) {
 
 function normalizeDateCell(value) {
   if (!value) return "";
-  if (typeof value === "string") return value.trim();
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return formatDateKey(value);
+  if (typeof value === "number" && value > 20000) {
+    const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+    const date = new Date(excelEpoch.getTime() + value * 86400000);
+    return date.toISOString().slice(0, 10);
+  }
+  if (typeof value === "string") {
+    const text = value.trim();
+    const iso = text.match(/^(\d{4})[-/.년]\s*(\d{1,2})[-/.월]\s*(\d{1,2})/);
+    if (iso) return `${iso[1]}-${pad(iso[2])}-${pad(iso[3])}`;
+    const short = text.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
+    if (short) {
+      const year = short[3].length === 2 ? `20${short[3]}` : short[3];
+      return `${year}-${pad(short[1])}-${pad(short[2])}`;
+    }
+    return text;
+  }
   return String(value).trim();
 }
 
@@ -3520,6 +4351,9 @@ function hasRawMenu(empId, menuKey) {
 }
 
 function hasMenuAccess(empId, menuKey) {
+  if (ui.accessMode !== "admin") {
+    return ["cal", "hist", "set", "leave"].includes(menuKey);
+  }
   const perm = state.perms[empId];
   if (!perm) return true;
   if (perm.grade === "admin") return true;
@@ -3574,6 +4408,15 @@ function formatDateKey(date) {
 
 function formatDateTime(date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function githubApiUrl(owner, repo, path, branch = "") {
