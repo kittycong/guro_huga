@@ -754,6 +754,10 @@ button {
   background: var(--amber);
 }
 
+.dot.rose {
+  background: var(--rose);
+}
+
 .dot.red {
   background: var(--red);
 }
@@ -824,6 +828,10 @@ button {
   background: var(--amber-soft);
 }
 
+.day-cell.quarter {
+  background: rgba(219, 109, 143, 0.16);
+}
+
 .day-cell.sub {
   background: var(--purple-soft);
 }
@@ -861,6 +869,11 @@ button {
 
 .day-tag.half {
   background: var(--amber);
+  color: #fff;
+}
+
+.day-tag.quarter {
+  background: var(--rose);
   color: #fff;
 }
 

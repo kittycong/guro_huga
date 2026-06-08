@@ -1115,7 +1115,8 @@ function renderCalendarView() {
   document.getElementById("month-label").textContent = `${ui.currentYear}년 ${ui.currentMonth + 1}월`;
   document.querySelector("#view-cal .legend").innerHTML = `
     <span><i class="dot blue"></i><em>연</em> 연차</span>
-    <span><i class="dot amber"></i><em>반</em> 반차/반반차</span>
+    <span><i class="dot amber"></i><em>반</em> 반차</span>
+    <span><i class="dot rose"></i><em>반반</em> 반반차</span>
     <span><i class="dot purple"></i><em>교</em> 교육</span>
     <span><i class="dot green"></i><em>출</em> 출장</span>
     <span><i class="dot red"></i><em>공</em> 공휴일/대체</span>
@@ -2193,22 +2194,21 @@ function renderCalendarGrid() {
     if (holiday) classes.push("holiday");
     if (isSubHoliday) classes.push("sub");
     if (records.some((record) => record.type === "연차")) classes.push("leave");
-    if (records.some((record) => record.type === "반차" || record.type === "반반차")) classes.push("half");
+    if (records.some((record) => record.type === "반차")) classes.push("half");
+    if (records.some((record) => record.type === "반반차")) classes.push("quarter");
     if (records.some((record) => record.type === "교육")) classes.push("edu");
     if (records.some((record) => record.type === "출장")) classes.push("trip");
     const leaveCount = records.filter((record) => record.type === "연차").length;
-    const halfRecords = records.filter((record) => record.type === "반차" || record.type === "반반차");
-    const halfUsage = round(halfRecords.reduce((sum, record) => sum + leaveDelta(record.type), 0));
-    const halfLabel = halfRecords.length
-      ? [...new Set(halfRecords.map((record) => record.type))].join("/")
-      : "";
+    const halfUsage = round(records.filter((record) => record.type === "반차").reduce((sum, record) => sum + leaveDelta(record.type), 0));
+    const quarterUsage = round(records.filter((record) => record.type === "반반차").reduce((sum, record) => sum + leaveDelta(record.type), 0));
     const eduCount = records.filter((record) => record.type === "교육").length;
     const tripCount = records.filter((record) => record.type === "출장").length;
     const tags = [];
     if (holiday) tags.push(`<span class="day-tag holiday">${HOLIDAYS[key]}</span>`);
     else if (isSubHoliday) tags.push(`<span class="day-tag sub">대체휴일</span>`);
     if (leaveCount) tags.push(`<span class="day-tag leave">연차 ${leaveCount}</span>`);
-    if (halfUsage) tags.push(`<span class="day-tag half">${halfLabel} ${formatLeaveDelta(halfUsage)} 차감</span>`);
+    if (halfUsage) tags.push(`<span class="day-tag half">반차 ${formatLeaveDelta(halfUsage)} 차감</span>`);
+    if (quarterUsage) tags.push(`<span class="day-tag quarter">반반차 ${formatLeaveDelta(quarterUsage)} 차감</span>`);
     if (eduCount) tags.push(`<span class="day-tag edu">교육 ${eduCount}</span>`);
     if (tripCount) tags.push(`<span class="day-tag trip">출장 ${tripCount}</span>`);
 
