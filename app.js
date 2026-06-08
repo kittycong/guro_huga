@@ -2381,10 +2381,14 @@ function moveMonth(delta) {
 }
 
 function toggleRecordByDate(date) {
-  const existing = state.records.find((record) => record.empId === ui.selectedEmployeeId && record.date === date && record.type === "연차");
-  if (existing) {
-    state.records = state.records.filter((record) => record.id !== existing.id);
+  const existingRecords = recordsOnDate(ui.selectedEmployeeId, date);
+  const existingAnnual = existingRecords.find((record) => record.type === "연차");
+  if (existingAnnual) {
+    state.records = state.records.filter((record) => record.id !== existingAnnual.id);
     touchState(`연차 기록 삭제 ${date}`);
+  } else if (existingRecords.length) {
+    alert(`${date}에는 이미 ${existingRecords.map((record) => record.type).join(", ")} 기록이 있습니다. 수정은 사용 내역에서 삭제 후 다시 등록하세요.`);
+    return;
   } else {
     state.records.push({
       id: `r_${Date.now()}`,
