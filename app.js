@@ -1109,6 +1109,7 @@ function renderCalendarView() {
   if (!employee) return;
   const summary = employeeSummary(employee.id, ui.currentYear);
   const fiscal = fiscalYearSummary(employee.id, ui.currentYear);
+  const seniority = seniorityLeaveSummary(employee.id, ui.currentYear);
   const monthPrefix = `${ui.currentYear}-${pad(ui.currentMonth + 1)}`;
   const plannedThisMonth = state.records
     .filter((record) => record.empId === employee.id && record.date.startsWith(monthPrefix))
@@ -1129,7 +1130,7 @@ function renderCalendarView() {
     kpiCard(fiscal.alertLevel === "urgent" ? "red" : fiscal.alertLevel === "warning" ? "amber" : "primary", "회계년도 잔여", fiscal.remain.toFixed(1), "일", fiscal.alertLabel),
     kpiCard("amber", "이번 달 예정", plannedThisMonth.toFixed(1), "일", `${ui.currentMonth + 1}월 기록`)
   ].join("");
-  renderFiscalDashboard(fiscal);
+  renderFiscalDashboard(fiscal, seniority);
 
   renderYearTabs("year-tabs", ui.currentYear, (year) => {
     ui.currentYear = year;
@@ -1141,11 +1142,30 @@ function renderCalendarView() {
   renderMonthHistory();
 }
 
-function renderFiscalDashboard(fiscal) {
+function renderFiscalDashboard(fiscal, seniority) {
   const target = document.getElementById("fiscal-dashboard");
   if (!target) return;
   const promotionClass = fiscal.promotionNeeded ? "warning" : "safe";
   const expiryClass = fiscal.expiryRisk ? "warning" : "safe";
+  const balanceRows = [
+    {
+      basis: "회계년도 기준",
+      period: fiscal.periodLabel,
+      generated: fiscal.total,
+      used: fiscal.used,
+      remain: fiscal.remain,
+      note: `회계년도 시작 ${fiscal.fiscalStartMonth}월`
+    },
+    {
+      basis: "입사일 기준 누계",
+      period: seniority.periodLabel,
+      generated: seniority.generated,
+      used: seniority.used,
+      remain: seniority.remain,
+      note: seniority.joinDate ? "월차 + 입사일 연차 누계" : "입사일 미입력"
+    }
+  ];
+  const grantRows = seniority.grants.slice(-12);
   target.innerHTML = `
     <div class="card-head">
       <div>
@@ -1172,6 +1192,47 @@ function renderFiscalDashboard(fiscal) {
         <span>${fiscal.expiryRisk ? "주의" : "안정"}</span>
         <em>${Number(state.settings.warningMonth || 10)}월 이후 잔여 휴가 확인</em>
       </div>
+    </div>
+    <div class="fiscal-list-section">
+      <div class="mini-section-title">잔여 누계 목록</div>
+      <div class="table-wrap compact-table">
+        <table class="table">
+          <thead><tr><th>기준</th><th>기간</th><th>생성</th><th>사용</th><th>잔여</th><th>비고</th></tr></thead>
+          <tbody>
+            ${balanceRows.map((row) => `
+              <tr>
+                <td>${row.basis}</td>
+                <td>${row.period}</td>
+                <td>${row.generated.toFixed(2)}</td>
+                <td>${row.used.toFixed(2)}</td>
+                <td><strong>${row.remain.toFixed(2)}</strong></td>
+                <td>${row.note}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="fiscal-list-section">
+      <div class="mini-section-title">입사일 기준 휴가 발생 목록</div>
+      <div class="table-wrap compact-table">
+        <table class="table">
+          <thead><tr><th>발생일</th><th>구분</th><th>생성</th><th>누계 생성</th><th>발생일까지 사용</th><th>발생일 기준 잔여</th></tr></thead>
+          <tbody>
+            ${grantRows.length ? grantRows.map((row) => `
+              <tr>
+                <td>${row.date}</td>
+                <td>${row.label}</td>
+                <td>${row.days.toFixed(2)}</td>
+                <td>${row.cumulativeGenerated.toFixed(2)}</td>
+                <td>${row.usedToDate.toFixed(2)}</td>
+                <td><strong>${row.remainToDate.toFixed(2)}</strong></td>
+              </tr>
+            `).join("") : `<tr><td colspan="6">${seniority.joinDate ? "선택 연도까지 발생한 입사일 기준 휴가가 없습니다." : "입사일을 먼저 입력하세요."}</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+      <div class="row-desc">최근 12개 발생 항목만 표시합니다. 1년 미만은 매월 만근 시 1일, 1년 이상은 입사일 기준 15일 + 2년마다 1일 가산(최대 25일)으로 계산합니다.</div>
     </div>
   `;
 }
@@ -2498,6 +2559,105 @@ function fiscalYearSummary(empId, year) {
     alertLevel,
     alertLabel
   };
+}
+
+function seniorityLeaveSummary(empId, year) {
+  const employee = employeeById(empId);
+  const joinDate = employee?.joinDate || "";
+  if (!joinDate) {
+    return {
+      joinDate: "",
+      periodLabel: "입사일 미입력",
+      generated: 0,
+      used: 0,
+      remain: 0,
+      grants: []
+    };
+  }
+  const join = parseDateKey(joinDate);
+  const periodEnd = new Date(year, 11, 31);
+  const endKey = formatDateKey(periodEnd);
+  const grants = buildSeniorityLeaveGrants(joinDate, endKey);
+  const used = round(state.records
+    .filter((record) => record.empId === empId && record.date >= joinDate && record.date <= endKey)
+    .reduce((sum, record) => sum + leaveDelta(record.type), 0));
+  const generated = round(grants.reduce((sum, grant) => sum + grant.days, 0));
+  const usageRows = state.records
+    .filter((record) => record.empId === empId && record.date >= joinDate && record.date <= endKey)
+    .sort((left, right) => left.date.localeCompare(right.date));
+  let cumulativeGenerated = 0;
+  const grantsWithBalance = grants.map((grant) => {
+    cumulativeGenerated = round(cumulativeGenerated + grant.days);
+    const usedToDate = round(usageRows
+      .filter((record) => record.date <= grant.date)
+      .reduce((sum, record) => sum + leaveDelta(record.type), 0));
+    return Object.assign({}, grant, {
+      cumulativeGenerated,
+      usedToDate,
+      remainToDate: round(cumulativeGenerated - usedToDate)
+    });
+  });
+  return {
+    joinDate,
+    periodLabel: `${joinDate} ~ ${endKey}`,
+    generated,
+    used,
+    remain: round(generated - used),
+    grants: grantsWithBalance
+  };
+}
+
+function buildSeniorityLeaveGrants(joinDate, endDate) {
+  const join = parseDateKey(joinDate);
+  const end = parseDateKey(endDate);
+  if (!join || !end || join > end) return [];
+  const grants = [];
+  for (let month = 1; month <= 11; month += 1) {
+    const grantDate = addMonthsClamped(join, month);
+    if (grantDate > end) break;
+    grants.push({
+      date: formatDateKey(grantDate),
+      label: "1년 미만 만근 월차",
+      days: 1
+    });
+  }
+  for (let serviceYears = 1; serviceYears <= 60; serviceYears += 1) {
+    const grantDate = addYearsClamped(join, serviceYears);
+    if (grantDate > end) break;
+    grants.push({
+      date: formatDateKey(grantDate),
+      label: `${serviceYears}년차 입사일 연차`,
+      days: anniversaryLeaveDays(serviceYears)
+    });
+  }
+  return grants.sort((left, right) => left.date.localeCompare(right.date));
+}
+
+function anniversaryLeaveDays(serviceYears) {
+  if (serviceYears < 1) return 0;
+  return Math.min(25, 15 + Math.max(0, Math.floor((serviceYears - 1) / 2)));
+}
+
+function parseDateKey(value) {
+  if (!value) return null;
+  const [year, month, day] = String(value).split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1, day);
+}
+
+function addMonthsClamped(date, months) {
+  const targetMonth = date.getMonth() + months;
+  const target = new Date(date.getFullYear(), targetMonth, 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(date.getDate(), lastDay));
+  return target;
+}
+
+function addYearsClamped(date, years) {
+  const target = new Date(date.getFullYear() + years, date.getMonth(), 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(date.getDate(), lastDay));
+  return target;
 }
 
 function leaveDelta(type) {

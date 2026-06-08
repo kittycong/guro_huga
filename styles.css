@@ -670,6 +670,23 @@ button {
   background: #ecfff5;
 }
 
+.fiscal-list-section {
+  margin-top: 12px;
+}
+
+.mini-section-title {
+  font-size: 17px;
+  font-weight: 900;
+  margin-bottom: 6px;
+}
+
+.compact-table .table th,
+.compact-table .table td {
+  padding: 8px 8px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
 .erp-two-panel {
   display: grid;
   grid-template-columns: 1fr 1fr;
