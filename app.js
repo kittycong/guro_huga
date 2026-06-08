@@ -406,6 +406,7 @@ function ensureRuntimeLayout() {
       <input id="hist-search" class="field compact-search" type="text" placeholder="내역 검색">
     </div>
   `);
+  appendBefore("view-cal", "year-tabs", `<div id="fiscal-dashboard" class="card fiscal-dashboard"></div>`);
   appendBefore("view-emp", "employee-grid", `
     <div class="card">
       <div class="card-body filter-grid">
@@ -1107,6 +1108,7 @@ function renderCalendarView() {
   const employee = currentUser();
   if (!employee) return;
   const summary = employeeSummary(employee.id, ui.currentYear);
+  const fiscal = fiscalYearSummary(employee.id, ui.currentYear);
   const monthPrefix = `${ui.currentYear}-${pad(ui.currentMonth + 1)}`;
   const plannedThisMonth = state.records
     .filter((record) => record.empId === employee.id && record.date.startsWith(monthPrefix))
@@ -1122,11 +1124,12 @@ function renderCalendarView() {
     <span><i class="dot red"></i><em>공</em> 공휴일/대체</span>
   `;
   document.getElementById("personal-kpis").innerHTML = [
-    kpiCard("blue", "올해 발생", summary.total.toFixed(1), "일", `${ui.currentYear}년 기준`),
-    kpiCard("green", "사용", summary.used.toFixed(1), "일", "연차 + 반차"),
-    kpiCard("primary", "잔여", summary.remain.toFixed(1), "일", summary.alertLabel),
+    kpiCard("blue", "회계년도 발생", fiscal.total.toFixed(1), "일", fiscal.periodLabel),
+    kpiCard("green", "회계년도 사용", fiscal.used.toFixed(1), "일", `사용률 ${fiscal.usagePercent}%`),
+    kpiCard(fiscal.alertLevel === "urgent" ? "red" : fiscal.alertLevel === "warning" ? "amber" : "primary", "회계년도 잔여", fiscal.remain.toFixed(1), "일", fiscal.alertLabel),
     kpiCard("amber", "이번 달 예정", plannedThisMonth.toFixed(1), "일", `${ui.currentMonth + 1}월 기록`)
   ].join("");
+  renderFiscalDashboard(fiscal);
 
   renderYearTabs("year-tabs", ui.currentYear, (year) => {
     ui.currentYear = year;
@@ -1136,6 +1139,41 @@ function renderCalendarView() {
 
   renderCalendarGrid();
   renderMonthHistory();
+}
+
+function renderFiscalDashboard(fiscal) {
+  const target = document.getElementById("fiscal-dashboard");
+  if (!target) return;
+  const promotionClass = fiscal.promotionNeeded ? "warning" : "safe";
+  const expiryClass = fiscal.expiryRisk ? "warning" : "safe";
+  target.innerHTML = `
+    <div class="card-head">
+      <div>
+        <div class="card-title">회계년도 잔여·촉진 대시보드</div>
+        <div class="card-meta">${fiscal.periodLabel} · 회계년도 시작 ${fiscal.fiscalStartMonth}월</div>
+      </div>
+      <span class="status-badge ${fiscal.alertLevel}">${fiscal.alertLabel}</span>
+    </div>
+    <div class="fiscal-dashboard-grid">
+      <div class="fiscal-meter-block">
+        <div class="fiscal-meter-head">
+          <strong>사용률 ${fiscal.usagePercent}%</strong>
+          <span>${fiscal.used.toFixed(1)} / ${fiscal.total.toFixed(1)}일</span>
+        </div>
+        <div class="fiscal-meter"><span style="width:${fiscal.usagePercent}%"></span></div>
+      </div>
+      <div class="fiscal-status ${promotionClass}">
+        <strong>촉진 대상</strong>
+        <span>${fiscal.promotionNeeded ? "필요" : "해당 없음"}</span>
+        <em>잔여 ${fiscal.remain.toFixed(1)}일 · 기준 ${Number(state.settings.promotionMinDays || 5)}일 이상 / 사용률 ${Number(state.settings.promotionMaxUsagePercent || 40)}% 이하</em>
+      </div>
+      <div class="fiscal-status ${expiryClass}">
+        <strong>소멸 위험</strong>
+        <span>${fiscal.expiryRisk ? "주의" : "안정"}</span>
+        <em>${Number(state.settings.warningMonth || 10)}월 이후 잔여 휴가 확인</em>
+      </div>
+    </div>
+  `;
 }
 
 function renderHistory() {
@@ -2425,6 +2463,41 @@ function employeeSummary(empId, year) {
   const halfCount = state.records
     .filter((record) => record.empId === empId && record.date.startsWith(String(year)) && record.type !== "연차").length;
   return { employee, total, used, remain, usagePercent, expiryRisk, promotionNeeded, alertLevel, alertLabel, halfCount };
+}
+
+function fiscalYearSummary(empId, year) {
+  const employee = employeeById(empId);
+  const fiscalStartMonth = Number(employee?.fiscalYearMonth || 1);
+  const periodStart = new Date(year, fiscalStartMonth - 1, 1);
+  const periodEnd = new Date(year + 1, fiscalStartMonth - 1, 0);
+  const startKey = formatDateKey(periodStart);
+  const endKey = formatDateKey(periodEnd);
+  const total = getTotal(empId, year);
+  const used = round(state.records
+    .filter((record) => record.empId === empId && record.date >= startKey && record.date <= endKey)
+    .reduce((sum, record) => sum + leaveDelta(record.type), 0));
+  const remain = round(total - used);
+  const usagePercent = total ? Math.min(100, Math.max(0, Math.round((used / total) * 100))) : 0;
+  const expiryRisk = remain > 0 && new Date().getMonth() + 1 >= Number(state.settings.warningMonth || 10);
+  const promotionNeeded = remain >= Number(state.settings.promotionMinDays || 5) && usagePercent <= Number(state.settings.promotionMaxUsagePercent || 40);
+  const alertLevel = remain <= 0 ? "urgent" : expiryRisk || promotionNeeded ? "warning" : "safe";
+  const alertLabel = remain <= 0 ? "소진" : expiryRisk ? "소멸 위험" : promotionNeeded ? "촉진 필요" : "안정";
+  return {
+    employee,
+    year,
+    fiscalStartMonth,
+    startKey,
+    endKey,
+    periodLabel: `${startKey} ~ ${endKey}`,
+    total,
+    used,
+    remain,
+    usagePercent,
+    expiryRisk,
+    promotionNeeded,
+    alertLevel,
+    alertLabel
+  };
 }
 
 function leaveDelta(type) {

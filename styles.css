@@ -573,6 +573,103 @@ button {
   grid-template-columns: 1.5fr 1fr;
   gap: 10px;
 }
+
+.fiscal-dashboard {
+  margin-bottom: 10px;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.status-badge.safe {
+  background: #dff5ea;
+  color: #24664d;
+}
+
+.status-badge.warning {
+  background: #fff0c8;
+  color: #86601b;
+}
+
+.status-badge.urgent {
+  background: #ffe1e6;
+  color: #a53b4b;
+}
+
+.fiscal-dashboard-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.fiscal-meter-block,
+.fiscal-status {
+  border-radius: 8px;
+  padding: 10px;
+  border: 1px solid rgba(31, 45, 37, 0.08);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.fiscal-meter-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+
+.fiscal-meter {
+  height: 14px;
+  border-radius: 999px;
+  background: #e8efe9;
+  overflow: hidden;
+}
+
+.fiscal-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--blue), var(--rose));
+}
+
+.fiscal-status {
+  display: grid;
+  gap: 4px;
+}
+
+.fiscal-status strong {
+  font-size: 14px;
+  color: var(--ink-dim);
+}
+
+.fiscal-status span {
+  font-size: 24px;
+  font-weight: 900;
+}
+
+.fiscal-status em {
+  font-style: normal;
+  font-size: 13px;
+  color: var(--ink-dim);
+}
+
+.fiscal-status.warning {
+  background: #fff6df;
+}
+
+.fiscal-status.safe {
+  background: #ecfff5;
+}
+
 .erp-two-panel {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1243,7 +1340,8 @@ button {
 
   .kpi-grid,
   .kpi-grid.four,
-  .layout-two {
+  .layout-two,
+  .fiscal-dashboard-grid {
     grid-template-columns: 1fr;
   }
 
