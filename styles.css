@@ -687,6 +687,44 @@ button {
   white-space: nowrap;
 }
 
+.rulebook-layout {
+  display: grid;
+  gap: 10px;
+}
+
+.rulebook-card .card-head {
+  margin-bottom: 8px;
+}
+
+.rulebook-doc {
+  display: grid;
+  gap: 10px;
+}
+
+.rule-article {
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(31, 45, 37, 0.08);
+}
+
+.rule-article h3 {
+  margin: 0 0 6px;
+  font-size: 20px;
+  letter-spacing: 0;
+}
+
+.rule-article ol {
+  margin: 0;
+  padding-left: 24px;
+}
+
+.rule-article li {
+  margin: 6px 0;
+  line-height: 1.62;
+  font-size: 16px;
+}
+
 .erp-two-panel {
   display: grid;
   grid-template-columns: 1fr 1fr;

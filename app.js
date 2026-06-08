@@ -41,6 +41,7 @@ const MENU_DEFS = [
   { key: "cal", label: "달력 보기" },
   { key: "hist", label: "사용 내역" },
   { key: "set", label: "연차 설정" },
+  { key: "rulebook", label: "취업규칙" },
   { key: "emp", label: "직원 목록" },
   { key: "mgr", label: "전체 현황" },
   { key: "sub", label: "대체휴가" },
@@ -407,6 +408,7 @@ function ensureRuntimeLayout() {
     </div>
   `);
   appendBefore("view-cal", "year-tabs", `<div id="fiscal-dashboard" class="card fiscal-dashboard"></div>`);
+  appendRulebookView();
   appendBefore("view-emp", "employee-grid", `
     <div class="card">
       <div class="card-body filter-grid">
@@ -516,6 +518,23 @@ function appendBefore(viewId, anchorId, html) {
   const firstId = html.match(/id="([^"]+)"/)?.[1];
   if (!view || !anchor || (firstId && document.getElementById(firstId))) return;
   anchor.insertAdjacentHTML("beforebegin", html);
+}
+
+function appendRulebookView() {
+  if (document.getElementById("view-rulebook")) return;
+  const anchor = document.getElementById("view-emp");
+  if (!anchor) return;
+  anchor.insertAdjacentHTML("beforebegin", `
+    <section class="view" id="view-rulebook">
+      <div class="page-head">
+        <div>
+          <div class="page-title">취업규칙</div>
+          <div class="page-sub">근로시간, 보상휴가, 연차유급휴가, 사용촉진 기준을 문서형으로 확인합니다.</div>
+        </div>
+      </div>
+      <div id="rulebook-body" class="rulebook-layout"></div>
+    </section>
+  `);
 }
 
 async function loadInitialState() {
@@ -852,6 +871,7 @@ function renderActiveView() {
     cal: renderCalendarView,
     hist: renderHistory,
     set: renderSettings,
+    rulebook: renderRulebook,
     emp: renderEmployees,
     mgr: renderManager,
     sub: renderSubLeaves,
@@ -912,7 +932,7 @@ function renderNavigation() {
   const container = document.getElementById("nav-list");
   const current = currentUser();
   const grouped = [
-    { label: "개인", keys: ["cal", "hist"] },
+    { label: "개인", keys: ["cal", "hist", "rulebook"] },
     { label: "운영", keys: ["dashboard", "mgr", "emp", "office"] },
     { label: "휴가관리", keys: ["leave", "set", "sub", "spe"] },
     { label: "인사관리", keys: ["hr", "payroll", "perm"] },
@@ -1258,6 +1278,77 @@ function renderHistory() {
   document.getElementById("history-body").innerHTML = records.length
     ? records.map(renderRecordRow).join("")
     : emptyState("해당 연도 기록이 없습니다.");
+}
+
+function renderRulebook() {
+  const target = document.getElementById("rulebook-body");
+  if (!target) return;
+  target.innerHTML = `
+    <div class="card rulebook-card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">근로시간 및 보상휴가</div>
+          <div class="card-meta">제23조의4 ~ 제25조</div>
+        </div>
+      </div>
+      <div class="rulebook-doc">
+        ${renderRuleArticle("제23조의4", "보상 휴가제", [
+          "센터는 업무상 필요나 기타 부득이한 사유가 있을 경우 직원 대표와의 명시적인 서면합의로 연장근로, 야간근로 및 휴일근로에 대하여 임금을 지급하는 것을 갈음하여 다음 3개월간의 범위 내 다른 근로일로 휴일을 대체할 수 있다.",
+          "직원은 보상휴가제로 휴무하고자 하는 날 직전일까지 센터에 통보하여 승인을 받아야 한다."
+        ])}
+        ${renderRuleArticle("제24조", "휴게시간", [
+          "휴게시간은 근로시간 4시간에 30분, 8시간에 1시간의 비율을 원칙으로 한다.",
+          "휴게시간은 자유로이 이용할 수 있으며, 센터 운영상 휴게시간은 변경할 수 있다."
+        ])}
+        ${renderRuleArticle("제25조", "연장 및 휴일근로 등", [
+          "센터 업무상 필요한 경우에는 직원과의 합의 하에 연장근로(1주 12시간 한도), 야간근로(22:00-06:00) 및 휴일근로를 시킬 수 있다.",
+          "임산부와 만18세 미만인 직원은 연장, 야간, 휴일근로를 시킬 수 없다. 다만, 만18세 미만인 직원 및 산후 1년이 경과되지 아니한 직원의 동의가 있는 경우, 임신 중의 직원이 명시적으로 청구하는 경우에는 노동부장관의 인가를 얻어 야간 및 휴일근로에 한하여 근로시킬 수 있다.",
+          "산후 1년이 경과되지 아니한 여성 직원에 대해서는 1일 2시간, 1주일에 6시간, 1년에 150시간을 초과하는 시간외근로를 시키지 못한다."
+        ])}
+      </div>
+    </div>
+    <div class="card rulebook-card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">연차유급휴가 운영 기준</div>
+          <div class="card-meta">제31조 ~ 제34조</div>
+        </div>
+      </div>
+      <div class="rulebook-doc">
+        ${renderRuleArticle("제31조", "연차유급휴가", [
+          "센터는 1년간 80% 이상 출근한 직원에게 15일의 연차유급휴가를 주어야 한다. 단, 80% 미만 출근한 자에 대하여는 1개월 개근 시 1일의 휴가를 부여한다.",
+          "센터는 계속하여 근로한 기간이 1년 미만인 직원에게 1개월 개근 시 1일의 유급휴가를 주어야 한다.",
+          "센터는 3년 이상 계속하여 근로한 직원에게는 제1항에 따른 휴가에 최초 1년을 초과하는 계속근로 연수 매 2년에 대하여 1일을 가산한 유급휴가를 주어야 한다. 이 경우 가산휴가를 포함한 총 휴가일수는 25일을 한도로 한다.",
+          "센터는 연차유급휴가를 주는 것이 사업상 지장이 있을 경우에 그 시기를 변경할 수 있다."
+        ])}
+        ${renderRuleArticle("제32조", "연차유급휴가의 청구", [
+          "센터는 필요할 경우 직원에게 연차유급휴가 사용계획서를 요구할 수 있다.",
+          "직원이 연차유급휴가를 사용하고자 하는 경우에는 사용하기 1주일 전에 청구해야 한다. 단, 연차유급휴가는 1회에 5일을 넘지 않도록 한다.",
+          "직원의 청구가 있는 시기에 주어야 한다. 단, 센터의 장은 직원이 청구한 시기에 연차유급휴가를 주는 것이 사업 운영에 중대한 지장이 있다고 판단될 경우에는 그 시기를 변경할 수 있다."
+        ])}
+        ${renderRuleArticle("제33조", "연차유급휴가의 대체", [
+          "센터는 직원대표와의 서면합의를 통해 연차 유급휴가일을 갈음하여 특정한 근로일(센터가 지정한 특별휴가, 하기휴가, 결근, 조퇴 등)에 직원을 휴무시킬 수 있다."
+        ])}
+        ${renderRuleArticle("제34조", "연차유급휴가 사용촉진", [
+          "센터는 제31조 제1항 및 제3항의 연차유급휴가에 대하여, 연차유급휴가 사용기간이 끝나기 6개월 전을 기준으로 10일 이내에 직원 개인별로 미사용 휴가일수를 알려주고, 직원은 그 사용 시기를 정하여 센터에 통보하도록 서면으로 촉구한다.",
+          "직원이 촉구를 받은 때부터 10일 이내에 미사용 휴가의 전부 또는 일부의 사용 시기를 정하여 센터에 통보하지 아니한 경우에는 연차유급휴가 사용기간이 끝나기 2개월 전까지 센터가 미사용 휴가의 사용 시기를 정하여 직원에게 서면으로 통보한다.",
+          "센터는 제31조 제2항의 연차유급휴가에 대하여 최초 1년의 근로기간이 끝나기 3개월 전을 기준으로 10일 이내에 직원별 미사용 휴가일수를 알려주고 사용 시기를 정하여 통보하도록 서면으로 촉구한다. 다만, 촉구 후 발생한 휴가는 최초 1년의 근로기간이 끝나기 1개월 전을 기준으로 5일 이내에 촉구하여야 한다.",
+          "직원이 촉구를 받은 때부터 10일 이내에 사용 시기를 정하여 통보하지 아니하면 최초 1년의 근로기간이 끝나기 1개월 전까지 센터가 사용 시기를 정하여 서면으로 통보한다. 다만, 1개월 전 촉구 휴가는 최초 1년의 근로기간이 끝나기 10일 전까지 서면으로 통보하여야 한다."
+        ])}
+      </div>
+    </div>
+  `;
+}
+
+function renderRuleArticle(number, title, clauses) {
+  return `
+    <article class="rule-article">
+      <h3>${number}(${title})</h3>
+      <ol>
+        ${clauses.map((clause) => `<li>${escapeHtml(clause)}</li>`).join("")}
+      </ol>
+    </article>
+  `;
 }
 
 function renderSettings() {
@@ -3720,11 +3811,36 @@ function getHrRecord(empId, year) {
 
 function defaultEmploymentRules() {
   return [
-    "1. 회계년도 기준 연차는 설정된 시작 월을 기준으로 계산합니다.",
-    "2. 입사일 기준 자동 계산값이 기본값이며, 연도별 일수는 수동으로 조정할 수 있습니다.",
-    "3. 대체휴가는 관리자가 부여하며 사용 차감은 개별 이력으로 관리합니다.",
-    "4. 퇴사 정산 계산은 내부 참고용이며 실제 급여 정산 전 인사/노무 검토가 필요합니다.",
-    "5. 퇴사자 발생 시 미사용 연차와 1일 정산 단가를 함께 확인합니다."
+    "제23조의4(보상 휴가제)",
+    "① 센터는 업무상 필요나 기타 부득이한 사유가 있을 경우 직원 대표와의 명시적인 서면합의로 연장근로ㆍ야간근로 및 휴일근로에 대하여 임금을 지급하는 것을 갈음하여 다음 3개월간의 범위 내 다른 근로일로 휴일을 대체할 수 있다.",
+    "② 직원은 보상휴가제로 휴무하고자 하는 날 직전일까지 센터에 통보하여 승인을 받아야 한다.",
+    "",
+    "제24조(휴게시간)",
+    "① 휴게시간은 근로시간 4시간에 30분, 8시간에 1시간의 비율을 원칙으로 한다.",
+    "② 휴게시간은 자유로이 이용할 수 있으며, 센터 운영상 휴게시간은 변경할 수 있다.",
+    "",
+    "제25조(연장 및 휴일근로 등)",
+    "① 센터 업무상 필요한 경우에는 직원과의 합의 하에 연장근로(1주 12시간 한도), 야간근로(22:00-06:00) 및 휴일근로를 시킬 수 있다.",
+    "② 임산부와 만18세 미만인 직원은 연장ㆍ야간ㆍ휴일근로를 시킬 수 없다. 다만, 만18세 미만인 직원 및 산후 1년이 경과되지 아니한 직원의 동의가 있는 경우, 임신 중의 직원이 명시적으로 청구하는 경우에는 노동부장관의 인가를 얻어 야간 및 휴일근로에 한하여 근로시킬 수 있다.",
+    "③ 산후 1년이 경과되지 아니한 여성 직원에 대해서는 1일 2시간, 1주일에 6시간, 1년에 150시간을 초과하는 시간외근로를 시키지 못한다.",
+    "",
+    "제31조(연차유급휴가)",
+    "① 센터는 1년간 80% 이상 출근한 직원에게 15일의 연차유급휴가를 주어야 한다. 단, 80% 미만 출근한 자에 대하여는 1개월 개근 시 1일의 휴가를 부여한다.",
+    "② 센터는 계속하여 근로한 기간이 1년 미만인 직원에게 1개월 개근 시 1일의 유급휴가를 주어야 한다.",
+    "③ 센터는 3년 이상 계속하여 근로한 직원에게는 제1항에 따른 휴가에 최초 1년을 초과하는 계속근로 연수 매 2년에 대하여 1일을 가산한 유급휴가를 주어야 한다. 이 경우 가산휴가를 포함한 총 휴가일수는 25일을 한도로 한다.",
+    "④ 센터는 연차유급휴가를 주는 것이 사업상 지장이 있을 경우에 그 시기를 변경할 수 있다.",
+    "",
+    "제32조(연차유급휴가의 청구)",
+    "① 센터는 필요할 경우 직원에게 연차유급휴가 사용계획서를 요구할 수 있다.",
+    "② 직원이 연차유급휴가를 사용하고자 하는 경우에는 사용하기 1주일 전에 청구해야 한다. 단, 연차유급휴가는 1회에 5일을 넘지 않도록 한다.",
+    "③ 직원의 청구가 있는 시기에 주어야 한다. 단, 센터의 장은 직원이 청구한 시기에 연차유급휴가를 주는 것이 사업 운영에 중대한 지장이 있다고 판단될 경우에는 그 시기를 변경할 수 있다.",
+    "",
+    "제33조(연차유급휴가의 대체)",
+    "센터는 직원대표와의 서면합의를 통해 연차 유급휴가일을 갈음하여 특정한 근로일(센터가 지정한 특별휴가, 하기휴가, 결근, 조퇴 등)에 직원을 휴무시킬 수 있다.",
+    "",
+    "제34조(연차유급휴가 사용촉진)",
+    "① 센터는 제31조 제1항 및 제3항의 연차유급휴가에 대하여 사용촉진 절차를 진행할 수 있다.",
+    "② 센터는 제31조 제2항의 연차유급휴가에 대하여 최초 1년 근로기간 종료 전 사용촉진 절차를 진행할 수 있다."
   ].join("\n");
 }
 
@@ -4599,7 +4715,7 @@ function hasRawMenu(empId, menuKey) {
 
 function hasMenuAccess(empId, menuKey) {
   if (ui.accessMode !== "admin") {
-    return ["cal", "hist", "set", "leave"].includes(menuKey);
+    return ["cal", "hist", "set", "leave", "rulebook"].includes(menuKey);
   }
   const perm = state.perms[empId];
   if (!perm) return true;
