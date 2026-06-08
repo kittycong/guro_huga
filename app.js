@@ -371,8 +371,15 @@ function deleteRecord(id) {
 }
 
 function ensureRuntimeLayout() {
+  [
+    "excel-import-input",
+    "hr-excel-import-input",
+    "category-excel-import-input",
+    "pay-grade-import-input",
+    "tax-table-import-input"
+  ].forEach((id) => document.getElementById(id)?.setAttribute("accept", ".xlsx,.xls,.xlsm,.csv"));
   if (!document.getElementById("leave-record-import-input")) {
-    document.body.insertAdjacentHTML("beforeend", `<input id="leave-record-import-input" type="file" accept=".xlsx,.xls" hidden>`);
+    document.body.insertAdjacentHTML("beforeend", `<input id="leave-record-import-input" type="file" accept=".xlsx,.xls,.xlsm" hidden>`);
   }
   if (!document.getElementById("access-mode-panel")) {
     const syncPanel = document.querySelector(".sync-mini");
@@ -633,6 +640,7 @@ function normalizeState() {
   }
 
   state.employees.forEach((employee, index) => {
+    employee.employeeNo = employee.employeeNo || employee.id;
     employee.color = employee.color || COLORS[index % COLORS.length];
     employee.photo = employee.photo || "";
     employee.birthDate = employee.birthDate || "";
@@ -3952,27 +3960,9 @@ function exportExcelSnapshot() {
     return;
   }
   const workbook = XLSX.utils.book_new();
-  const employeeRows = state.employees.map((employee) => ({
-    직원ID: employee.id,
-    이름: employee.name,
-    부서: employee.dept,
-    직책: employee.role,
-    입사일: employee.joinDate,
-    회계년도시작월: employee.fiscalYearMonth,
-    퇴사일: employee.resignationDate,
-    월통상임금: employee.monthlyBasePay,
-    일근로시간: employee.workHoursPerDay,
-    일정산단가: employee.leaveUnitPrice,
-    일평균임금: employee.averageDailyWage,
-    프로필이미지: employee.photo || ""
-  }));
-  const recordRows = state.records.map((record) => ({
-    ID: record.id,
-    직원ID: record.empId,
-    날짜: record.date,
-    구분: record.type,
-    메모: record.memo
-  }));
+  const year = ui.managerYear || ui.currentYear || new Date().getFullYear();
+  const employeeRows = buildEmployeeExcelRows();
+  const recordRows = buildLeaveRecordExcelRows();
   const subRows = state.subLeaves.map((item) => ({
     ID: item.id,
     직원ID: item.empId,
@@ -3995,12 +3985,20 @@ function exportExcelSnapshot() {
     const [empId, year] = key.split("_");
     return { 직원ID: empId, 기준연도: Number(year), 생성연차: Number(total) };
   });
+  const monthlyRows = buildMonthlyUsageRows(year);
+  const dailyRows = buildDailyUsageRows(year);
+  const usageStatementRows = buildUsageStatementRows(year);
+  const settlementRows = buildAnnualSettlementRows(year);
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(employeeRows), "직원목록");
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(recordRows), "사용내역");
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(subRows), "대체휴가");
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(specialRows), "특별휴가");
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(totalRows), "연차합계");
-  XLSX.writeFile(workbook, `guro_huga_export_${Date.now()}.xlsx`);
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(monthlyRows), "월별사용대장");
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(dailyRows), "일별사용대장");
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(usageStatementRows), "연차사용내역서");
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(settlementRows), "연차정산서(연차수당)");
+  XLSX.writeFile(workbook, `guro_huga_연차관리대장_${year}_${Date.now()}.xlsx`);
 }
 
 function exportLeaveRecordsExcel() {
@@ -4008,23 +4006,11 @@ function exportLeaveRecordsExcel() {
     alert("엑셀 라이브러리를 불러오지 못했습니다.");
     return;
   }
-  const rows = state.records.map((record) => {
-    const employee = employeeById(record.empId) || {};
-    return {
-      ID: record.id,
-      직원ID: record.empId,
-      이름: employee.name || "",
-      부서: employee.dept || "",
-      직책: employee.role || "",
-      날짜: record.date,
-      구분: record.type,
-      차감일수: leaveDelta(record.type),
-      메모: record.memo || "",
-      등록일시: record.createdAt || record.updatedAt || ""
-    };
-  });
+  const rows = buildLeaveRecordExcelRows();
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), "휴가목록");
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(buildUsageStatementRows(ui.currentYear)), "연차사용내역서");
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(buildAnnualSettlementRows(ui.currentYear)), "연차정산서(연차수당)");
   XLSX.writeFile(workbook, `guro_huga_leave_records_${Date.now()}.xlsx`);
 }
 
@@ -4059,15 +4045,221 @@ function importLeaveRecordsExcel(event) {
 }
 
 function parseStandardLeaveWorkbook(workbook) {
+  const originalRows = parseOriginalLeaveWorkbook(workbook);
+  if (originalRows.length) return originalRows;
   const sheet = workbook.Sheets["휴가목록"] || workbook.Sheets["사용내역"] || workbook.Sheets[workbook.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
   return rows.map((row, index) => ({
     id: String(row["ID"] || `leave_${Date.now()}_${index}`),
     empId: resolveEmployeeIdFromExcel(row),
     date: normalizeDateCell(row["날짜"]),
-    type: String(row["구분"] || leaveTypeFromDays(row["사용개수"] || row["차감일수"] || 1)).trim() || "연차",
+    type: normalizeLeaveType(row["구분"] || row["연차/반차"] || leaveTypeFromDays(row["사용개수"] || row["차감일수"] || row["연차기간"] || 1)),
     memo: String(row["메모"] || "").trim()
   })).filter((row) => row.empId && row.date);
+}
+
+function buildEmployeeExcelRows() {
+  return state.employees.map((employee) => ({
+    직원ID: employee.id,
+    사원번호: employee.employeeNo || employee.id,
+    이름: employee.name,
+    성명: employee.name,
+    부서: employee.dept,
+    직책: employee.role,
+    입사일: employee.joinDate,
+    회계년도시작월: employee.fiscalYearMonth,
+    퇴사일: employee.resignationDate,
+    월통상임금: employee.monthlyBasePay,
+    "월 평균임금": employee.averageDailyWage || employee.monthlyBasePay || 0,
+    일근로시간: employee.workHoursPerDay,
+    일정산단가: employee.leaveUnitPrice,
+    일평균임금: employee.averageDailyWage,
+    프로필이미지: employee.photo || ""
+  }));
+}
+
+function buildLeaveRecordExcelRows() {
+  return state.records
+    .slice()
+    .sort((left, right) => left.date.localeCompare(right.date) || (employeeById(left.empId)?.name || "").localeCompare(employeeById(right.empId)?.name || ""))
+    .map((record) => {
+      const employee = employeeById(record.empId) || {};
+      return {
+        ID: record.id,
+        직원ID: record.empId,
+        사원번호: employee.employeeNo || employee.id || record.empId,
+        이름: employee.name || "",
+        성명: employee.name || "",
+        부서: employee.dept || "",
+        직책: employee.role || "",
+        입사일: employee.joinDate || "",
+        휴가구분: record.memo || "",
+        "연차/반차": record.type,
+        구분: record.type,
+        연차시작일: record.startDate || record.date,
+        연차종료일: record.endDate || record.date,
+        날짜: record.date,
+        연차기간: leaveDelta(record.type),
+        차감일수: leaveDelta(record.type),
+        메모: record.memo || "",
+        등록일시: record.createdAt || record.updatedAt || ""
+      };
+    });
+}
+
+function buildMonthlyUsageRows(year) {
+  return state.employees.map((employee) => {
+    const row = {
+      기준년도: year,
+      직원ID: employee.id,
+      사원번호: employee.employeeNo || employee.id,
+      성명: employee.name,
+      부서: employee.dept,
+      직책: employee.role
+    };
+    let total = 0;
+    for (let month = 1; month <= 12; month += 1) {
+      const prefix = `${year}-${pad(month)}`;
+      const used = round(state.records
+        .filter((record) => record.empId === employee.id && record.date.startsWith(prefix))
+        .reduce((sum, record) => sum + leaveDelta(record.type), 0));
+      row[`${month}월`] = used;
+      total += used;
+    }
+    row.합계 = round(total);
+    return row;
+  });
+}
+
+function buildDailyUsageRows(year) {
+  return state.records
+    .filter((record) => record.date.startsWith(String(year)))
+    .slice()
+    .sort((left, right) => left.date.localeCompare(right.date))
+    .map((record) => {
+      const employee = employeeById(record.empId) || {};
+      return {
+        기준년도: year,
+        날짜: record.date,
+        직원ID: record.empId,
+        사원번호: employee.employeeNo || employee.id || record.empId,
+        성명: employee.name || "",
+        부서: employee.dept || "",
+        직책: employee.role || "",
+        "연차/반차": record.type,
+        연차기간: leaveDelta(record.type),
+        휴가구분: record.memo || ""
+      };
+    });
+}
+
+function buildUsageStatementRows(year) {
+  return buildLeaveRecordExcelRows()
+    .filter((row) => String(row.날짜 || "").startsWith(String(year)))
+    .map((row) => ({
+      기준년도: year,
+      사원번호: row.사원번호,
+      부서: row.부서,
+      성명: row.성명,
+      직책: row.직책,
+      입사일: row.입사일,
+      휴가구분: row.휴가구분,
+      "연차/반차": row["연차/반차"],
+      연차시작일: row.연차시작일,
+      연차종료일: row.연차종료일,
+      연차기간: row.연차기간,
+      메모: row.메모
+    }));
+}
+
+function buildAnnualSettlementRows(year) {
+  return state.employees.map((employee) => {
+    const summary = employeeSummary(employee.id, year);
+    const seniority = seniorityLeaveSummary(employee.id, year);
+    const settlement = calcRetirementPayout(employee.id, year);
+    const prorated = seniority.prorationRows?.[0];
+    return {
+      기준일자: `${year}-12-31`,
+      사원번호: employee.employeeNo || employee.id,
+      직원ID: employee.id,
+      부서: employee.dept,
+      성명: employee.name,
+      직책: employee.role,
+      입사일: employee.joinDate,
+      퇴사일: employee.resignationDate || "",
+      "월 평균임금": employee.averageDailyWage || 0,
+      "1일평균임금": employee.averageDailyWage || 0,
+      연차일수: summary.total,
+      회계년도사용일수: summary.used,
+      미사용일수: summary.remain,
+      "입사일기준누계발생": seniority.generated,
+      "입사일기준누계사용": seniority.used,
+      "입사일기준누계잔여": seniority.remain,
+      "연도말안분기준": prorated ? prorated.basePeriodLabel : "",
+      "연도말안분계산식": prorated ? prorated.formula : "",
+      연차수당: settlement.amount,
+      정산계산식: settlement.formula
+    };
+  });
+}
+
+function parseOriginalLeaveWorkbook(workbook) {
+  const rows = [];
+  const inputRows = parseOriginalLeaveSheet(workbook.Sheets["연차입력"]);
+  const hiddenRows = parseOriginalHiddenUsageSheet(workbook.Sheets["h_일별사용대장"]);
+  inputRows.concat(hiddenRows).forEach((item, index) => {
+    const empId = resolveEmployeeIdFromExcel(item);
+    const date = normalizeDateCell(item["연차시작일"] || item["연차일자"] || item["날짜"]);
+    const type = normalizeLeaveType(item["연차/반차"] || item["구분"]);
+    if (!empId || !date) return;
+    rows.push({
+      id: String(item.ID || `xlsm_${empId}_${date.replaceAll("-", "")}_${type}_${index}`).replace(/\s+/g, "_"),
+      empId,
+      date,
+      type,
+      memo: String(item["휴가구분"] || item["메모"] || "연차관리대장 반영").trim()
+    });
+  });
+  return dedupeLeaveRecords(rows);
+}
+
+function parseOriginalLeaveSheet(sheet) {
+  if (!sheet) return [];
+  const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false });
+  const headerIndex = grid.findIndex((row) => row.includes("사원번호") && row.includes("성명") && row.includes("연차/반차"));
+  if (headerIndex < 0) return [];
+  const headers = grid[headerIndex].map((value) => String(value || "").trim());
+  return grid.slice(headerIndex + 1).map((row) => rowToObject(headers, row))
+    .filter((row) => row["성명"] && row["연차/반차"] && (row["연차시작일"] || row["날짜"]));
+}
+
+function parseOriginalHiddenUsageSheet(sheet) {
+  if (!sheet) return [];
+  const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false });
+  const headerIndex = grid.findIndex((row) => row.includes("사원번호") && row.includes("성명") && row.includes("연차일자"));
+  if (headerIndex < 0) return [];
+  const fullHeaders = grid[headerIndex].map((value) => String(value || "").trim());
+  const startIndex = fullHeaders.findIndex((value, index) => value === "사원번호" && fullHeaders[index + 1] === "성명" && fullHeaders[index + 3] === "연차일자");
+  const headers = startIndex >= 0 ? fullHeaders.slice(startIndex, startIndex + 5) : fullHeaders;
+  return grid.slice(headerIndex + 1).map((row) => rowToObject(headers, startIndex >= 0 ? row.slice(startIndex, startIndex + 5) : row))
+    .filter((row) => row["성명"] && row["연차/반차"] && row["연차일자"]);
+}
+
+function dedupeLeaveRecords(records) {
+  const seen = new Set();
+  return records.filter((record) => {
+    const key = `${record.empId}_${record.date}_${record.type}_${record.memo || ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function rowToObject(headers, row) {
+  return headers.reduce((acc, header, index) => {
+    if (header) acc[header] = row[index];
+    return acc;
+  }, {});
 }
 
 function parsePersonalLeaveWorkbook(sheet) {
@@ -4113,8 +4305,7 @@ function importExcelSnapshot(event) {
   reader.onload = (loadEvent) => {
     try {
       const workbook = XLSX.read(loadEvent.target.result, { type: "array" });
-      const employeeRows = XLSX.utils.sheet_to_json(workbook.Sheets["직원목록"] || {}, { defval: "" });
-      const recordRows = XLSX.utils.sheet_to_json(workbook.Sheets["사용내역"] || workbook.Sheets["휴가목록"] || {}, { defval: "" });
+      const employeeRows = parseEmployeeWorkbookRows(workbook);
       const subRows = XLSX.utils.sheet_to_json(workbook.Sheets["대체휴가"] || {}, { defval: "" });
       const specialRows = XLSX.utils.sheet_to_json(workbook.Sheets["특별휴가"] || {}, { defval: "" });
       const totalRows = XLSX.utils.sheet_to_json(workbook.Sheets["연차합계"] || {}, { defval: "" });
@@ -4126,12 +4317,16 @@ function importExcelSnapshot(event) {
       state.totals = {};
       mergeEmployeesFromExcel(employeeRows);
       mergeTotalsFromExcel(totalRows);
+      const originalRecordRows = parseOriginalLeaveWorkbook(workbook);
+      const recordRows = originalRecordRows.length
+        ? originalRecordRows
+        : XLSX.utils.sheet_to_json(workbook.Sheets["사용내역"] || workbook.Sheets["휴가목록"] || {}, { defval: "" });
       state.records = recordRows.map((row, index) => ({
-        id: String(row["ID"] || `record_${index}`),
-        empId: resolveEmployeeIdFromExcel(row),
-        date: normalizeDateCell(row["날짜"]),
-        type: String(row["구분"] || "연차").trim() || "연차",
-        memo: String(row["메모"] || "").trim()
+        id: String(row["ID"] || row.id || `record_${index}`),
+        empId: row.empId || resolveEmployeeIdFromExcel(row),
+        date: normalizeDateCell(row["날짜"] || row.date || row["연차시작일"] || row["연차일자"]),
+        type: normalizeLeaveType(row["구분"] || row.type || row["연차/반차"] || "연차"),
+        memo: String(row["메모"] || row.memo || row["휴가구분"] || "").trim()
       })).filter((row) => row.empId && row.date);
       state.subLeaves = subRows.map((row, index) => ({
         id: String(row["ID"] || `sub_${index}`),
@@ -4158,9 +4353,28 @@ function importExcelSnapshot(event) {
 function resolveEmployeeIdFromExcel(row) {
   const direct = String(row["직원ID"] || row["empId"] || "").trim();
   if (direct) return direct;
-  const name = String(row["이름"] || "").trim();
+  const employeeNo = String(row["사원번호"] || row["직원번호"] || "").trim();
+  if (employeeNo) {
+    const byNo = state.employees.find((employee) => employee.employeeNo === employeeNo || employee.id === employeeNo);
+    if (byNo) return byNo.id;
+  }
+  const name = String(row["이름"] || row["성명"] || "").trim();
   const found = state.employees.find((employee) => employee.name === name);
   return found?.id || "";
+}
+
+function parseEmployeeWorkbookRows(workbook) {
+  if (workbook.Sheets["사원목록"]) {
+    const rows = XLSX.utils.sheet_to_json(workbook.Sheets["사원목록"], { header: 1, defval: "", raw: false });
+    const headerIndex = rows.findIndex((row) => row.includes("사원번호") && row.includes("성명") && row.includes("입사일"));
+    if (headerIndex >= 0) {
+      const headers = rows[headerIndex].map((value) => String(value || "").trim());
+      return rows.slice(headerIndex + 1)
+        .map((row) => rowToObject(headers, row))
+        .filter((row) => row["성명"] || row["이름"]);
+    }
+  }
+  return XLSX.utils.sheet_to_json(workbook.Sheets["직원목록"] || {}, { defval: "" });
 }
 
 function exportCategoryExcel() {
@@ -4173,7 +4387,9 @@ function exportCategoryExcel() {
   if (category === "employees") {
     const rows = state.employees.map((employee) => ({
       직원ID: employee.id,
+      사원번호: employee.employeeNo || employee.id,
       이름: employee.name,
+      성명: employee.name,
       부서: employee.dept,
       직책: employee.role,
       입사일: employee.joinDate,
@@ -4660,11 +4876,17 @@ function importHrExcel(event) {
 function mergeEmployeesFromExcel(rows) {
   rows.forEach((row, index) => {
     const admin = isCurrentAdmin();
-    const id = String(row["직원ID"] || "").trim() || `excel_${Date.now()}_${index}`;
+    const employeeNo = String(row["사원번호"] || row["직원번호"] || row["직원ID"] || "").trim();
+    const name = String(row["이름"] || row["성명"] || "").trim();
+    const id = String(row["직원ID"] || "").trim()
+      || state.employees.find((employee) => employee.employeeNo === employeeNo || (name && employee.name === name))?.id
+      || employeeNo
+      || `excel_${Date.now()}_${index}`;
     const existing = employeeById(id);
     const next = {
       id,
-      name: String(row["이름"] || "").trim() || existing?.name || `직원${index + 1}`,
+      employeeNo: employeeNo || existing?.employeeNo || id,
+      name: name || existing?.name || `직원${index + 1}`,
       dept: String(row["부서"] || "").trim(),
       role: String(row["직책"] || "").trim(),
       joinDate: normalizeDateCell(row["입사일"]),
@@ -4674,10 +4896,10 @@ function mergeEmployeesFromExcel(rows) {
       personalInfo: admin ? String(row["개인정보메모"] || existing?.personalInfo || "").trim() : (existing?.personalInfo || ""),
       fiscalYearMonth: Number(row["회계년도시작월"] || existing?.fiscalYearMonth || 1),
       resignationDate: normalizeDateCell(row["퇴사일"]),
-      monthlyBasePay: Number(row["월통상임금"] || existing?.monthlyBasePay || 0),
+      monthlyBasePay: normalizeNumber(row["월통상임금"] || row["월 평균임금"] || existing?.monthlyBasePay || 0),
       workHoursPerDay: Number(row["일근로시간"] || existing?.workHoursPerDay || state.settings.defaultWorkHoursPerDay || 8),
-      leaveUnitPrice: Number(row["일정산단가"] || existing?.leaveUnitPrice || 0),
-      averageDailyWage: Number(row["일평균임금"] || existing?.averageDailyWage || 0)
+      leaveUnitPrice: normalizeNumber(row["일정산단가"] || existing?.leaveUnitPrice || 0),
+      averageDailyWage: normalizeNumber(row["일평균임금"] || row["월 평균임금"] || existing?.averageDailyWage || 0)
     };
 
     if (existing) {
@@ -4738,6 +4960,20 @@ function normalizeDateCell(value) {
     return text;
   }
   return String(value).trim();
+}
+
+function normalizeNumber(value) {
+  if (typeof value === "number") return value;
+  const text = String(value || "").replace(/[^0-9.-]/g, "");
+  return text ? Number(text) : 0;
+}
+
+function normalizeLeaveType(value) {
+  const text = String(value || "").trim();
+  if (text.includes("반반")) return "반반차";
+  if (text.includes("반차")) return "반차";
+  if (["교육", "출장", "개인일정"].includes(text)) return text;
+  return "연차";
 }
 
 function allYears() {
