@@ -2778,7 +2778,8 @@ function buildAnnualProrationRows(grants, year) {
 }
 
 function annualGrantPeriodEnd(grantDate) {
-  return formatDateKey(new Date(grantDate.getFullYear() + 1, grantDate.getMonth(), 0));
+  const nextAnniversary = addYearsClamped(grantDate, 1);
+  return formatDateKey(addDays(nextAnniversary, -1));
 }
 
 function anniversaryLeaveDays(serviceYears) {
@@ -2806,6 +2807,12 @@ function maxDateKey(left, right) {
 
 function minDateKey(left, right) {
   return left <= right ? left : right;
+}
+
+function addDays(date, days) {
+  const target = new Date(date);
+  target.setDate(target.getDate() + days);
+  return target;
 }
 
 function addMonthsClamped(date, months) {
