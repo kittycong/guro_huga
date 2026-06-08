@@ -371,6 +371,12 @@ function deleteRecord(id) {
 }
 
 function ensureRuntimeLayout() {
+  document.querySelectorAll('link[rel="stylesheet"]').forEach((link) => {
+    const href = link.getAttribute("href") || "";
+    if (href === "./styles.css" || href.endsWith("/styles.css")) {
+      link.setAttribute("href", "./styles.css?v=neutral-erp-20260608");
+    }
+  });
   [
     "excel-import-input",
     "hr-excel-import-input",
