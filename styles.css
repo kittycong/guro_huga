@@ -149,8 +149,14 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
   font-size: 16px;
   font-weight: 600;
+}
+
+.nav-btn span {
+  opacity: 0.55;
+  margin-left: 8px;
 }
 
 .nav-btn:hover,
@@ -1389,6 +1395,15 @@ button {
     height: auto;
   }
 
+  .brand .sidebar-toggle {
+    display: inline-flex;
+  }
+
+  /* 모바일에서는 메뉴를 접어 두고 '메뉴' 버튼으로 연다 */
+  .sidebar:not(.open) > :not(.brand) {
+    display: none;
+  }
+
   .main {
     padding: 14px 12px 28px;
   }
@@ -1451,4 +1466,45 @@ button {
     padding: 8px 7px;
     font-size: 14px;
   }
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 10px;
+  font-size: var(--text-xs);
+  color: var(--ink-soft);
+}
+
+.day-cell.sun .day-number,
+.day-cell.holiday .day-number,
+.day-cell.sub .day-number {
+  color: var(--red);
+}
+
+.day-cell.sat .day-number {
+  color: var(--blue);
+}
+
+.sidebar-toggle {
+  display: none;
+  margin-left: auto;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
 }
