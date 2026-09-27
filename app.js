@@ -128,6 +128,16 @@ let supabaseClientId = localStorage.getItem(STORAGE_KEYS.supabaseClientId) || ""
 let applyingRemoteState = false;
 let supabaseSdkPromise = null;
 let supabaseRuntimeConfig = null;
+// 로그인한 사용자의 계정 정보 { user_id, login_id, emp_id, role } (Supabase 사용 시)
+let authProfile = null;
+let recordsChannel = null;
+let syncedRecords = new Map();
+let recordSyncTimer = null;
+let recordSyncInFlight = false;
+let recordSyncAgain = false;
+const LOGIN_EMAIL_DOMAIN = "guro-huga.local";
+const LEAVE_TABLE = "guro_huga_leave_records";
+const PROFILE_TABLE = "guro_huga_profiles";
 
 document.addEventListener("DOMContentLoaded", init);
 
@@ -135,9 +145,15 @@ async function init() {
   ensureRuntimeLayout();
   bindStaticEvents();
   await loadExternalSupabaseConfig();
-  await loadInitialState();
+  if (isSupabaseEnabled()) {
+    const ready = await startAuthenticatedSession();
+    if (!ready) return;
+  } else {
+    await loadInitialState();
+  }
   normalizeState();
   initializeSelections();
+  applyAuthProfile();
   hydrateSyncForm();
   renderAll();
 }
@@ -791,12 +807,23 @@ async function loadSupabaseState() {
     const client = await ensureSupabaseClient();
     setSyncStatus("saving", "DB읽기", "Supabase에서 공유 데이터를 불러오고 있습니다.");
     renderSyncStatus();
-    const { data, error } = await client
-      .from(config.table)
-      .select("id,data,updated_at,updated_by")
-      .eq("id", config.rowId)
-      .maybeSingle();
-    if (error) throw error;
+    let data;
+    if (authProfile) {
+      if (isAuthAdmin()) {
+        const result = await client.from(config.table).select("id,data,updated_at,updated_by").eq("id", config.rowId).maybeSingle();
+        if (result.error) throw result.error;
+        data = result.data;
+      } else {
+        const result = await client.rpc("guro_state_for_me");
+        if (result.error) throw result.error;
+        data = result.data ? { data: result.data, updated_at: new Date().toISOString() } : null;
+      }
+      if (data?.data) data.data.records = await fetchLeaveRecords(client);
+    } else {
+      const result = await client.from(config.table).select("id,data,updated_at,updated_by").eq("id", config.rowId).maybeSingle();
+      if (result.error) throw result.error;
+      data = result.data;
+    }
     if (!data?.data) {
       setSyncStatus("idle", "DB준비", "Supabase 테이블은 연결됐지만 기본 데이터가 없습니다. 현재 데이터를 Supabase에 초기 저장하세요.");
       renderSyncStatus();
@@ -807,6 +834,8 @@ async function loadSupabaseState() {
     applyingRemoteState = false;
     normalizeState();
     initializeSelections();
+    applyAuthProfile();
+    rememberSyncedRecords();
     lastLoadedAt = formatDateTime(new Date(data.updated_at || Date.now()));
     localStorage.setItem(STORAGE_KEYS.draft, JSON.stringify(state));
     setSyncStatus("success", "Supabase", "Supabase 공유 데이터를 불러왔습니다.");
@@ -828,7 +857,7 @@ async function saveSupabaseState(reason = "공유 저장") {
   renderSyncStatus();
   const payload = {
     id: config.rowId,
-    data: state,
+    data: authProfile ? Object.assign({}, state, { records: [] }) : state,
     updated_by: supabaseClientId,
     updated_at: new Date().toISOString()
   };
@@ -861,6 +890,7 @@ async function subscribeSupabaseState() {
       const incoming = payload.new?.data;
       if (!incoming || payload.new?.updated_by === supabaseClientId) return;
       applyingRemoteState = true;
+      if (authProfile) incoming.records = state.records;
       state = incoming;
       normalizeState();
       initializeSelections();
@@ -876,6 +906,7 @@ async function subscribeSupabaseState() {
         renderSyncStatus();
       }
     });
+  if (authProfile) await subscribeLeaveRecords(client);
 }
 
 function renderActiveView() {
@@ -984,6 +1015,7 @@ function renderSidebar() {
   document.getElementById("sb-name").textContent = selected?.name || "";
   document.getElementById("sb-meta").textContent = [selected?.dept, selected?.role, accessModeLabel()].filter(Boolean).join(" · ");
   renderAccessModePanel();
+  renderAuthPanel();
 }
 
 function renderDashboard() {
@@ -2192,6 +2224,7 @@ function buildOrgTreeLines() {
 }
 
 function renderPermissions() {
+  renderAccountManager();
   document.getElementById("permission-body").innerHTML = state.employees.map((employee) => {
     const grade = state.perms[employee.id]?.grade || "normal";
     return `
@@ -2377,6 +2410,11 @@ async function setAccessMode(mode) {
 }
 
 async function requestAdminAccess() {
+  if (authProfile) {
+    if (isAuthAdmin()) return true;
+    alert("관리자 계정으로 로그인해야 관리자 모드를 쓸 수 있습니다.");
+    return false;
+  }
   const savedHash = localStorage.getItem(STORAGE_KEYS.adminPw);
   if (!savedHash) return true;
   const raw = prompt("관리자 비밀번호를 입력하세요.");
@@ -2898,8 +2936,11 @@ function saveSyncPrefs(prefs) {
 function touchState(action) {
   state.updatedAt = formatDateTime(new Date());
   appendAudit(action);
-  localStorage.setItem(STORAGE_KEYS.draft, JSON.stringify(state));
-  if (!applyingRemoteState) queueAutoSave();
+  if (!authProfile) localStorage.setItem(STORAGE_KEYS.draft, JSON.stringify(state));
+  if (!applyingRemoteState) {
+    if (authProfile) queueRecordSync();
+    queueAutoSave();
+  }
   renderSyncStatus();
 }
 
@@ -2911,13 +2952,15 @@ function appendAudit(action) {
 
 function queueAutoSave() {
   const prefs = getSyncPrefs();
-  if (!prefs.autoSave) return;
+  // 로그인한 관리자는 공용 데이터(직원·설정 등)를 자동 저장한다. 직원 계정은 공용 데이터를 저장하지 않는다.
+  if (authProfile && !isAuthAdmin()) return;
+  if (!prefs.autoSave && !authProfile) return;
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => { saveSharedNow(); }, 900);
 }
 
 async function saveSharedNow() {
-  if (ui.accessMode !== "admin") {
+  if (authProfile ? !isAuthAdmin() : ui.accessMode !== "admin") {
     setSyncStatus("error", "권한없음", "공유 저장은 관리자 모드에서만 가능합니다.");
     renderSyncStatus();
     return;
@@ -3111,7 +3154,7 @@ function clearSupabaseConfig() {
 }
 
 async function seedSupabaseFromCurrentState() {
-  if (ui.accessMode !== "admin") {
+  if (authProfile ? !isAuthAdmin() : ui.accessMode !== "admin") {
     setSyncStatus("error", "권한없음", "Supabase 초기 저장은 관리자 모드에서만 가능합니다.");
     renderSyncStatus();
     return;
@@ -3122,6 +3165,10 @@ async function seedSupabaseFromCurrentState() {
   }
   try {
     await saveSupabaseState("Supabase 초기 저장");
+    if (authProfile) {
+      syncedRecords = new Map();
+      await syncRecordsNow();
+    }
     await subscribeSupabaseState();
   } catch (error) {
     setSyncStatus("error", "DB오류", error.message || "Supabase 초기 저장 중 오류가 발생했습니다.");
@@ -5329,3 +5376,437 @@ function readJsonStorage(key) {
     if (event.target.closest("[data-view]")) setOpen(false);
   });
 })();
+
+// ===== 로그인 (Supabase 인증: 직원별 아이디·비밀번호) =====
+function isAuthAdmin() {
+  return authProfile?.role === "admin";
+}
+
+function loginIdToEmail(loginId) {
+  return `${String(loginId || "").trim().toLowerCase()}@${LOGIN_EMAIL_DOMAIN}`;
+}
+
+async function startAuthenticatedSession() {
+  let client;
+  try {
+    client = await ensureSupabaseClient();
+  } catch (error) {
+    showLoginScreen(`서버에 연결하지 못했습니다: ${error.message}`);
+    return false;
+  }
+  let { data: { session } } = await client.auth.getSession();
+  if (!session) session = await waitForLogin(client);
+  const { data: profile, error } = await client.from(PROFILE_TABLE)
+    .select("user_id, login_id, emp_id, role")
+    .eq("user_id", session.user.id)
+    .maybeSingle();
+  if (error || !profile) {
+    showLoginScreen("이 계정에 연결된 직원 정보가 없습니다. 관리자에게 문의하세요.", true);
+    return false;
+  }
+  authProfile = profile;
+  hideLoginScreen();
+  const loaded = await loadSupabaseState();
+  if (!loaded) {
+    // 공용 데이터가 아직 없으면 기본값으로 시작한다(관리자가 저장하면 생성됨).
+    state.records = await fetchLeaveRecords(client);
+    rememberSyncedRecords();
+  }
+  await subscribeSupabaseState();
+  client.auth.onAuthStateChange((event) => {
+    if (event === "SIGNED_OUT") window.location.reload();
+  });
+  return true;
+}
+
+// 로그인 후 권한에 맞게 화면을 고정한다. 직원은 본인 개인 모드만.
+function applyAuthProfile() {
+  if (!authProfile) return;
+  if (!isAuthAdmin()) {
+    ui.accessMode = "personal";
+    ui.selectedEmployeeId = authProfile.emp_id;
+    ui.settingsEmployeeId = authProfile.emp_id;
+    ui.subEmployeeId = authProfile.emp_id;
+    ui.specialEmployeeId = authProfile.emp_id;
+    ui.wageCalcEmployeeId = authProfile.emp_id;
+  } else if (!employeeById(ui.selectedEmployeeId)) {
+    ui.selectedEmployeeId = authProfile.emp_id;
+  }
+}
+
+function ensureLoginOverlay() {
+  let overlay = document.getElementById("login-overlay");
+  if (overlay) return overlay;
+  document.body.insertAdjacentHTML("beforeend", `
+    <div id="login-overlay" class="login-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="login-title">
+      <form id="login-form" class="login-card" autocomplete="on">
+        <div class="brand-mark">휴</div>
+        <h1 id="login-title" class="login-title">구로센터 휴가</h1>
+        <p class="login-sub">관리자에게 받은 아이디와 비밀번호로 로그인하세요.</p>
+        <label class="field-label" for="login-id">아이디</label>
+        <input id="login-id" class="field" type="text" autocomplete="username" autocapitalize="off" spellcheck="false" required>
+        <label class="field-label" for="login-password">비밀번호</label>
+        <input id="login-password" class="field" type="password" autocomplete="current-password" required>
+        <div id="login-message" class="login-message" role="alert"></div>
+        <button id="login-submit" class="btn primary" type="submit">로그인</button>
+        <button id="login-signout" class="btn ghost hidden" type="button">다른 계정으로 로그인</button>
+      </form>
+    </div>
+  `);
+  overlay = document.getElementById("login-overlay");
+  document.getElementById("login-signout").addEventListener("click", async () => {
+    const client = await ensureSupabaseClient();
+    await client.auth.signOut();
+    window.location.reload();
+  });
+  return overlay;
+}
+
+function showLoginScreen(message = "", signedIn = false) {
+  const overlay = ensureLoginOverlay();
+  overlay.classList.remove("hidden");
+  document.getElementById("login-message").textContent = message;
+  document.getElementById("login-signout").classList.toggle("hidden", !signedIn);
+  document.getElementById("login-submit").classList.toggle("hidden", signedIn);
+  ["login-id", "login-password"].forEach((id) => { document.getElementById(id).disabled = signedIn; });
+}
+
+function hideLoginScreen() {
+  document.getElementById("login-overlay")?.classList.add("hidden");
+}
+
+function waitForLogin(client) {
+  showLoginScreen();
+  document.getElementById("login-id").focus();
+  return new Promise((resolve) => {
+    document.getElementById("login-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = document.getElementById("login-submit");
+      const message = document.getElementById("login-message");
+      button.disabled = true;
+      message.textContent = "";
+      const { data, error } = await client.auth.signInWithPassword({
+        email: loginIdToEmail(document.getElementById("login-id").value),
+        password: document.getElementById("login-password").value
+      });
+      button.disabled = false;
+      if (error || !data.session) {
+        message.textContent = "아이디 또는 비밀번호가 맞지 않습니다.";
+        return;
+      }
+      resolve(data.session);
+    });
+  });
+}
+
+async function signOutNow() {
+  if (!confirm("로그아웃할까요?")) return;
+  const client = await ensureSupabaseClient();
+  localStorage.removeItem(STORAGE_KEYS.draft);
+  await client.auth.signOut();
+  window.location.reload();
+}
+
+function openChangePasswordModal() {
+  openModal("비밀번호 변경", "다음 로그인부터 새 비밀번호를 씁니다.", `
+    <label class="field-label" for="new-password">새 비밀번호 (6자 이상)</label>
+    <input id="new-password" class="field" type="password" autocomplete="new-password">
+    <label class="field-label" for="new-password-2">새 비밀번호 확인</label>
+    <input id="new-password-2" class="field" type="password" autocomplete="new-password">
+    <button id="change-password-btn" class="btn primary" type="button">변경</button>
+  `);
+  document.getElementById("change-password-btn").addEventListener("click", async () => {
+    const first = document.getElementById("new-password").value;
+    if (first.length < 6) return alert("비밀번호는 6자 이상이어야 합니다.");
+    if (first !== document.getElementById("new-password-2").value) return alert("두 비밀번호가 다릅니다.");
+    const client = await ensureSupabaseClient();
+    const { error } = await client.auth.updateUser({ password: first });
+    if (error) return alert(`변경 실패: ${error.message}`);
+    closeModal();
+    alert("비밀번호를 바꿨습니다.");
+  });
+}
+
+function renderAuthPanel() {
+  const sidebar = document.querySelector(".sidebar");
+  if (!sidebar) return;
+  let panel = document.getElementById("auth-panel");
+  if (!authProfile) {
+    panel?.remove();
+    return;
+  }
+  if (!panel) {
+    sidebar.querySelector(".sync-mini")?.insertAdjacentHTML("beforebegin", `
+      <div id="auth-panel" class="sidebar-panel auth-panel">
+        <div class="mini-row"><span>로그인</span><strong id="auth-login-id"></strong></div>
+        <div class="auth-actions">
+          <button class="btn ghost small" type="button" data-auth="password">비밀번호 변경</button>
+          <button class="btn ghost small" type="button" data-auth="logout">로그아웃</button>
+        </div>
+      </div>
+    `);
+    panel = document.getElementById("auth-panel");
+    panel.querySelector('[data-auth="password"]').addEventListener("click", openChangePasswordModal);
+    panel.querySelector('[data-auth="logout"]').addEventListener("click", signOutNow);
+  }
+  document.getElementById("auth-login-id").textContent = `${authProfile.login_id} · ${isAuthAdmin() ? "관리자" : "직원"}`;
+  // 직원 계정은 관리자 모드 버튼을 숨긴다.
+  document.querySelectorAll('#access-mode-panel .mode-btn[data-mode="admin"]').forEach((button) => {
+    button.classList.toggle("hidden", !isAuthAdmin());
+  });
+}
+
+// ===== 휴가 기록: 한 건 = 한 행 (guro_huga_leave_records) =====
+function recordToRow(record) {
+  return {
+    id: record.id,
+    emp_id: record.empId,
+    date: record.date,
+    type: record.type,
+    memo: record.memo || "",
+    applied_date: record.appliedDate || null,
+    group_id: record.groupId || null
+  };
+}
+
+function rowToRecord(row) {
+  const record = { id: row.id, empId: row.emp_id, date: row.date, type: row.type, memo: row.memo || "" };
+  if (row.applied_date) record.appliedDate = row.applied_date;
+  if (row.group_id) record.groupId = row.group_id;
+  return record;
+}
+
+function recordSignature(record) {
+  return JSON.stringify(recordToRow(record));
+}
+
+function rememberSyncedRecords() {
+  syncedRecords = new Map((state.records || []).map((record) => [record.id, recordSignature(record)]));
+}
+
+async function fetchLeaveRecords(client) {
+  const rows = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await client.from(LEAVE_TABLE)
+      .select("id, emp_id, date, type, memo, applied_date, group_id")
+      .order("date")
+      .range(from, from + 999);
+    if (error) throw error;
+    rows.push(...data);
+    if (data.length < 1000) break;
+  }
+  return rows.map(rowToRecord);
+}
+
+function canEditRecord(record) {
+  return isAuthAdmin() || record.empId === authProfile?.emp_id;
+}
+
+function queueRecordSync() {
+  if (recordSyncTimer) clearTimeout(recordSyncTimer);
+  recordSyncTimer = setTimeout(() => { syncRecordsNow(); }, 300);
+}
+
+// 화면의 기록과 마지막으로 저장된 기록을 비교해 바뀐 것만 저장·삭제한다.
+async function syncRecordsNow() {
+  if (!authProfile) return;
+  if (recordSyncInFlight) {
+    recordSyncAgain = true;
+    return;
+  }
+  recordSyncInFlight = true;
+  try {
+    const client = await ensureSupabaseClient();
+    const current = new Map(state.records.map((record) => [record.id, record]));
+    const changed = [...current.values()]
+      .filter((record) => syncedRecords.get(record.id) !== recordSignature(record))
+      .filter(canEditRecord);
+    const removed = [...syncedRecords.keys()].filter((id) => !current.has(id));
+    if (changed.length) {
+      const { error } = await client.from(LEAVE_TABLE).upsert(changed.map(recordToRow), { onConflict: "id" });
+      if (error) throw error;
+      changed.forEach((record) => syncedRecords.set(record.id, recordSignature(record)));
+    }
+    if (removed.length) {
+      const { error } = await client.from(LEAVE_TABLE).delete().in("id", removed);
+      if (error) throw error;
+      removed.forEach((id) => syncedRecords.delete(id));
+    }
+    if (changed.length || removed.length) {
+      lastSavedAt = formatDateTime(new Date());
+      setSyncStatus("success", "저장됨", `휴가 기록 ${changed.length + removed.length}건을 저장했습니다.`);
+      renderSyncStatus();
+    }
+  } catch (error) {
+    setSyncStatus("error", "저장오류", `휴가 기록 저장 실패: ${error.message || error}`);
+    renderSyncStatus();
+  } finally {
+    recordSyncInFlight = false;
+    if (recordSyncAgain) {
+      recordSyncAgain = false;
+      syncRecordsNow();
+    }
+  }
+}
+
+async function subscribeLeaveRecords(client) {
+  if (recordsChannel) await client.removeChannel(recordsChannel);
+  recordsChannel = client
+    .channel("guro-huga-leave-records")
+    .on("postgres_changes", { event: "*", schema: "public", table: LEAVE_TABLE }, (payload) => {
+      if (payload.eventType === "DELETE") {
+        const id = payload.old?.id;
+        if (!id) return;
+        state.records = state.records.filter((record) => record.id !== id);
+        syncedRecords.delete(id);
+      } else if (payload.new) {
+        const record = rowToRecord(payload.new);
+        const index = state.records.findIndex((item) => item.id === record.id);
+        if (index >= 0) state.records[index] = record;
+        else state.records.push(record);
+        syncedRecords.set(record.id, recordSignature(record));
+      }
+      lastLoadedAt = formatDateTime(new Date());
+      renderAll();
+    })
+    .subscribe();
+}
+
+// ===== 관리자: 직원 로그인 계정 관리 =====
+async function callAccountAdmin(body) {
+  const client = await ensureSupabaseClient();
+  const { data, error } = await client.functions.invoke("guro-admin-users", { body });
+  if (error) {
+    let message = error.message;
+    try {
+      const detail = await error.context?.json();
+      if (detail?.error) message = detail.error;
+    } catch (_error) {
+      // 응답 본문이 없으면 기본 메시지를 쓴다.
+    }
+    throw new Error(message);
+  }
+  return data;
+}
+
+async function renderAccountManager() {
+  const view = document.getElementById("view-perm");
+  if (!view) return;
+  let card = document.getElementById("account-card");
+  if (!authProfile || !isAuthAdmin()) {
+    card?.remove();
+    return;
+  }
+  if (!card) {
+    view.querySelector(".page-head")?.insertAdjacentHTML("afterend", `
+      <div class="card" id="account-card">
+        <div class="card-head"><div class="card-title">로그인 계정</div></div>
+        <div class="card-body">
+          <p class="row-desc">직원마다 아이디와 비밀번호를 만들어 주세요. 직원 계정은 본인 휴가만 보고 기록할 수 있고, 관리자 계정은 전체를 관리합니다.</p>
+          <div class="account-form">
+            <select id="account-emp" class="field" aria-label="직원"></select>
+            <input id="account-login" class="field" type="text" placeholder="아이디 (영문 소문자·숫자)" autocapitalize="off" spellcheck="false" aria-label="아이디">
+            <input id="account-password" class="field" type="password" placeholder="초기 비밀번호 (6자 이상)" autocomplete="new-password" aria-label="초기 비밀번호">
+            <select id="account-role" class="field" aria-label="권한"><option value="staff">직원</option><option value="admin">관리자</option></select>
+            <button id="account-create" class="btn primary" type="button">계정 만들기</button>
+          </div>
+          <div class="table-wrap"><table class="table"><thead><tr><th>직원</th><th>아이디</th><th>권한</th><th>관리</th></tr></thead><tbody id="account-body"><tr><td colspan="4">불러오는 중…</td></tr></tbody></table></div>
+        </div>
+      </div>
+    `);
+    card = document.getElementById("account-card");
+    document.getElementById("account-create").addEventListener("click", createAccountFromForm);
+    document.getElementById("account-body").addEventListener("click", handleAccountAction);
+    document.getElementById("account-body").addEventListener("change", handleAccountRoleChange);
+  }
+  let accounts = [];
+  try {
+    accounts = (await callAccountAdmin({ action: "list" })).accounts || [];
+  } catch (error) {
+    document.getElementById("account-body").innerHTML = `<tr><td colspan="4">계정 목록을 불러오지 못했습니다: ${escapeHtml(error.message)}</td></tr>`;
+    return;
+  }
+  const withAccount = new Set(accounts.map((account) => account.emp_id));
+  document.getElementById("account-emp").innerHTML = state.employees
+    .filter((employee) => !withAccount.has(employee.id))
+    .map((employee) => `<option value="${escapeHtml(employee.id)}">${escapeHtml(employee.name)}</option>`)
+    .join("") || `<option value="">모든 직원에게 계정이 있습니다</option>`;
+  document.getElementById("account-body").innerHTML = accounts.map((account) => {
+    const employee = employeeById(account.emp_id);
+    const self = account.user_id === authProfile.user_id;
+    return `
+      <tr>
+        <td>${escapeHtml(employee?.name || account.emp_id)}</td>
+        <td>${escapeHtml(account.login_id)}${self ? " (나)" : ""}</td>
+        <td>
+          <select class="field" data-account-role="${account.user_id}" ${self ? "disabled" : ""}>
+            <option value="staff" ${account.role === "staff" ? "selected" : ""}>직원</option>
+            <option value="admin" ${account.role === "admin" ? "selected" : ""}>관리자</option>
+          </select>
+        </td>
+        <td class="account-actions">
+          <button class="btn ghost small" type="button" data-account-reset="${account.user_id}" data-login="${escapeHtml(account.login_id)}">비밀번호 초기화</button>
+          ${self ? "" : `<button class="btn ghost small" type="button" data-account-delete="${account.user_id}" data-login="${escapeHtml(account.login_id)}">삭제</button>`}
+        </td>
+      </tr>
+    `;
+  }).join("") || `<tr><td colspan="4">아직 계정이 없습니다.</td></tr>`;
+}
+
+async function createAccountFromForm() {
+  const button = document.getElementById("account-create");
+  const body = {
+    action: "create",
+    empId: document.getElementById("account-emp").value,
+    loginId: document.getElementById("account-login").value.trim().toLowerCase(),
+    password: document.getElementById("account-password").value,
+    role: document.getElementById("account-role").value
+  };
+  if (!body.empId) return alert("계정을 만들 직원을 선택하세요.");
+  if (!/^[a-z0-9._-]{3,30}$/.test(body.loginId)) return alert("아이디는 영문 소문자·숫자·._- 3~30자로 정하세요.");
+  if (body.password.length < 6) return alert("초기 비밀번호는 6자 이상이어야 합니다.");
+  button.disabled = true;
+  try {
+    await callAccountAdmin(body);
+    document.getElementById("account-login").value = "";
+    document.getElementById("account-password").value = "";
+    alert(`'${body.loginId}' 계정을 만들었습니다. 직원에게 아이디와 초기 비밀번호를 알려주고, 로그인 후 비밀번호를 바꾸게 하세요.`);
+    await renderAccountManager();
+  } catch (error) {
+    alert(`계정 만들기 실패: ${error.message}`);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function handleAccountAction(event) {
+  const reset = event.target.closest("[data-account-reset]");
+  const remove = event.target.closest("[data-account-delete]");
+  try {
+    if (reset) {
+      const password = prompt(`'${reset.dataset.login}'의 새 비밀번호 (6자 이상)`);
+      if (!password) return;
+      if (password.length < 6) return alert("비밀번호는 6자 이상이어야 합니다.");
+      await callAccountAdmin({ action: "reset", userId: reset.dataset.accountReset, password });
+      alert("비밀번호를 초기화했습니다.");
+    }
+    if (remove) {
+      if (!confirm(`'${remove.dataset.login}' 계정을 삭제할까요? 휴가 기록은 지워지지 않습니다.`)) return;
+      await callAccountAdmin({ action: "delete", userId: remove.dataset.accountDelete });
+      await renderAccountManager();
+    }
+  } catch (error) {
+    alert(`처리 실패: ${error.message}`);
+  }
+}
+
+async function handleAccountRoleChange(event) {
+  const select = event.target.closest("[data-account-role]");
+  if (!select) return;
+  try {
+    await callAccountAdmin({ action: "role", userId: select.dataset.accountRole, role: select.value });
+  } catch (error) {
+    alert(`권한 변경 실패: ${error.message}`);
+    await renderAccountManager();
+  }
+}
