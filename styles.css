@@ -8,35 +8,35 @@
 }
 
 :root {
-  --rose: #7f8794;
-  --rose-deep: #2f3a46;
-  --ink: #17202a;
-  --ink-soft: #3f4a56;
-  --ink-dim: #697481;
-  --paper: #f4f6f8;
-  --surface: #ffffff;
-  --surface-soft: #f8fafc;
-  --line: rgba(23, 32, 42, 0.1);
-  --line-strong: rgba(23, 32, 42, 0.18);
-  --green: #4d7c66;
-  --green-soft: #edf6f1;
+  --rose: #b39b73;
+  --rose-deep: #7a6445;
+  --ink: #3d3326;
+  --ink-soft: #5a4d3b;
+  --ink-dim: #7d6f57;
+  --paper: #f8f3e9;
+  --surface: #fffdf8;
+  --surface-soft: #fbf6ec;
+  --line: rgba(110, 86, 48, 0.14);
+  --line-strong: rgba(110, 86, 48, 0.24);
+  --green: #5f7f52;
+  --green-soft: #eef3e6;
   --amber: #9a6b20;
   --amber-soft: #fbf1db;
-  --red: #9f3f46;
-  --red-soft: #f8e9eb;
-  --blue: #41657f;
-  --blue-soft: #eaf1f6;
-  --purple: #655f83;
-  --purple-soft: #efedf6;
+  --red: #a2513f;
+  --red-soft: #f8e8e1;
+  --blue: #5b6f86;
+  --blue-soft: #f1e9da;
+  --purple: #7a6a84;
+  --purple-soft: #f1ecf0;
   --space-1: 4px;
   --space-2: 7px;
   --space-3: 10px;
   --space-4: 14px;
   --space-5: 18px;
-  --radius: 8px;
-  --radius-sm: 7px;
-  --radius-lg: 8px;
-  --shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --radius: 12px;
+  --radius-sm: 9px;
+  --radius-lg: 14px;
+  --shadow: 0 2px 10px rgba(140, 115, 80, 0.08);
   --text-xl: 30px;
   --text-lg: 23px;
   --text-md: 20px;
@@ -78,8 +78,8 @@ button {
 .sidebar {
   width: var(--sidebar-w);
   padding: 14px 10px;
-  background: #242c35;
-  color: #f8fafc;
+  background: #7a6445;
+  color: #fbf4e6;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -175,7 +175,7 @@ button {
   width: 100%;
   border-radius: 8px;
   border: 1px solid var(--line-strong);
-  background: #fff;
+  background: var(--surface);
   padding: 8px 10px;
   color: var(--ink);
   outline: none;
@@ -215,8 +215,8 @@ button {
 }
 
 .mode-btn.active {
-  background: #fff;
-  color: #242c35;
+  background: var(--surface);
+  color: #6b563a;
 }
 
 .sidebar .field:disabled {
@@ -433,7 +433,7 @@ button {
 }
 
 .btn.primary:hover {
-  background: #1f2933;
+  background: #6b563a;
 }
 
 .btn.ghost,
@@ -449,7 +449,7 @@ button {
 
 .btn.ghost:hover,
 .icon-btn:hover {
-  background: #f1f5f9;
+  background: #f3ecdf;
   border-color: var(--line-strong);
 }
 
@@ -517,17 +517,17 @@ button {
 }
 
 .kpi-card.primary {
-  background: #2f3a46;
+  background: #7a6445;
   color: #fff;
 }
-.kpi-card.blue { background: #edf2f7; }
+.kpi-card.blue { background: #f3ecdf; }
 
 .kpi-card.white {
-  background: #fff;
+  background: var(--surface);
 }
 
 .kpi-card.green {
-  background: #eef7f2;
+  background: #eef3e6;
 }
 
 .kpi-card.amber {
@@ -592,8 +592,8 @@ button {
 }
 
 .status-badge.safe {
-  background: #dff5ea;
-  color: #24664d;
+  background: #e6eedc;
+  color: #4f6b43;
 }
 
 .status-badge.warning {
@@ -632,7 +632,7 @@ button {
 .fiscal-meter {
   height: 14px;
   border-radius: 999px;
-  background: #e8efe9;
+  background: #ece6d8;
   overflow: hidden;
 }
 
@@ -640,7 +640,7 @@ button {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: var(--blue);
+  background: #b8955c;
 }
 
 .fiscal-status {
@@ -669,7 +669,7 @@ button {
 }
 
 .fiscal-status.safe {
-  background: #f0f7f3;
+  background: #f1f4ea;
 }
 
 .fiscal-list-section {
@@ -901,7 +901,7 @@ button {
 }
 
 .dot.blue {
-  background: var(--blue);
+  background: #8c7350;
 }
 
 .dot.amber {
@@ -966,7 +966,7 @@ button {
 }
 
 .day-cell.today {
-  outline: 2px solid rgba(47, 58, 70, 0.28);
+  outline: 2px solid rgba(140, 115, 80, 0.32);
 }
 
 .day-cell.holiday {
@@ -982,7 +982,7 @@ button {
 }
 
 .day-cell.quarter {
-  background: rgba(219, 109, 143, 0.16);
+  background: rgba(201, 166, 107, 0.2);
 }
 
 .day-cell.sub {
@@ -1016,7 +1016,7 @@ button {
 }
 
 .day-tag.leave {
-  background: var(--blue);
+  background: #8c7350;
   color: #fff;
 }
 
@@ -1072,7 +1072,7 @@ button {
   font-size: 13px;
   text-transform: none;
   letter-spacing: 0;
-  background: #f7f9fb;
+  background: #fbf6ec;
 }
 
 .employee-grid {
@@ -1117,7 +1117,7 @@ button {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: var(--blue);
+  background: #b8955c;
 }
 .progress.mini {
   margin: 10px 0 0;
@@ -1304,7 +1304,7 @@ button {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.46);
+  background: rgba(74, 58, 36, 0.46);
   display: grid;
   place-items: center;
   padding: 18px;
@@ -1319,7 +1319,7 @@ button {
   width: min(560px, 100%);
   background: var(--surface);
   border-radius: 10px;
-  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.18);
+  box-shadow: 0 24px 48px rgba(74, 58, 36, 0.18);
   border: 1px solid var(--line);
   overflow: hidden;
 }
