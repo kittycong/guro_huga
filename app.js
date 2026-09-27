@@ -2417,6 +2417,9 @@ function renderCalendarGrid() {
     const isToday = key === todayKey;
     const classes = ["day-cell"];
     if (isToday) classes.push("today");
+    const weekday = (firstDay + day - 1) % 7;
+    if (weekday === 0) classes.push("sun");
+    if (weekday === 6) classes.push("sat");
     if (holiday) classes.push("holiday");
     if (isSubHoliday) classes.push("sub");
     if (records.some((record) => record.type === "연차")) classes.push("leave");
@@ -2467,7 +2470,7 @@ function renderRecordRow(record) {
     <div class="row-item">
       <div class="row-main">
         <div class="row-title">${record.date} · ${record.type}</div>
-        <div class="row-desc">${recordUsageLabel(record)} · ${record.memo || "메모 없음"} · 등록 ${record.createdAt || record.updatedAt || "-"}</div>
+        <div class="row-desc">${recordUsageLabel(record)} · ${escapeHtml(record.memo || "메모 없음")}${record.appliedDate ? ` · 신청 ${record.appliedDate}` : ""}${record.groupId ? " · 연속 휴가" : ""} · 등록 ${record.createdAt || record.updatedAt || "-"}</div>
       </div>
       <div class="row-item-actions">
         <button class="action-link" type="button" data-record-print="${record.id}">신청서</button>
@@ -3226,8 +3229,13 @@ function openRecordModal() {
   openModal("휴가 / 일정 기록 추가", "휴가, 교육, 출장 일정을 달력에 등록합니다.", `
     <label class="field-label" for="record-emp">직원</label>
     <select id="record-emp" class="field">${state.employees.map((employee) => `<option value="${employee.id}" ${employee.id === ui.selectedEmployeeId ? "selected" : ""}>${employee.name}</option>`).join("")}</select>
-    <label class="field-label" for="record-date">날짜</label>
+    <label class="field-label" for="record-date">시작일</label>
     <input id="record-date" class="field" type="date" value="${formatDateKey(new Date())}">
+    <label class="field-label" for="record-end">종료일 (하루면 비워두세요)</label>
+    <input id="record-end" class="field" type="date">
+    <label class="check-row"><input id="record-skip-off" type="checkbox" checked> 주말·공휴일은 빼고 등록</label>
+    <label class="field-label" for="record-applied">신청일 (잔여일수를 신청 순서대로 계산할 때 사용)</label>
+    <input id="record-applied" class="field" type="date" value="${formatDateKey(new Date())}">
     <label class="field-label" for="record-type">구분</label>
     <select id="record-type" class="field">
       <option value="연차">연차</option>
@@ -3247,7 +3255,7 @@ function openRecordModal() {
 function openLeavePrintModal(recordId = "") {
   const records = [...state.records].sort((left, right) => (right.date || "").localeCompare(left.date || ""));
   const selectedRecord = recordId || records.find((record) => record.empId === ui.selectedEmployeeId)?.id || records[0]?.id || "";
-  openModal("휴가신청서 출력", "한글 휴가신청서 양식에 맞춘 인쇄용 보고서를 만듭니다.", `
+  openModal("휴가신청서 출력", "센터 연차유급휴가신청서를 한글(hwpx) 파일이나 인쇄 화면으로 만듭니다.", `
     <label class="field-label" for="print-record">신청 내역</label>
     <select id="print-record" class="field">
       ${records.map((record) => {
@@ -3261,9 +3269,40 @@ function openLeavePrintModal(recordId = "") {
     <input id="print-approver" class="field" type="text" placeholder="예: 센터장">
     <label class="field-label" for="print-transfer">업무 이관 사항</label>
     <input id="print-transfer" class="field" type="text" placeholder="업무 이관 사항이 없으면 비워두세요">
-    <div class="hint-box">현재 저장소에는 실제 HWPX 원본 양식 파일이 없어서, 브라우저 인쇄 화면을 HWPX 휴가신청서처럼 바로 출력할 수 있게 구성했습니다. 인쇄 대상을 PDF로 선택하면 전자결재 첨부용 파일로 저장할 수 있습니다.</div>
-    <button id="leave-print-btn" class="btn primary" type="button">인쇄 화면 열기</button>
+    <label class="field-label" for="print-recv-dept">업무 인수자 부서</label>
+    <input id="print-recv-dept" class="field" type="text" placeholder="예: 사무행정실">
+    <label class="field-label" for="print-recv-name">업무 인수자 성명</label>
+    <input id="print-recv-name" class="field" type="text">
+    <label class="field-label" for="print-team-note">팀장 결재란 비고 (한글 양식에 빨간 글씨로 표시)</label>
+    <input id="print-team-note" class="field" type="text" placeholder="예: 공석, 전결, 휴가">
+    <div class="hint-box">'한글(hwpx) 다운로드'는 센터 연차유급휴가신청서 원본 양식에 내용을 채워 파일로 내려받습니다. 여러 날을 한 번에 등록한 휴가는 한 장으로 묶여 기간과 일수가 합쳐집니다. 잔여일수는 신청일(없으면 휴가일) 순서로 그 건까지 쓴 뒤의 값입니다.</div>
+    <div class="modal-actions">
+      <button id="leave-hwpx-btn" class="btn primary" type="button">한글(hwpx) 다운로드</button>
+      <button id="leave-print-btn" class="btn ghost" type="button">인쇄 화면 열기</button>
+    </div>
   `);
+  document.getElementById("leave-hwpx-btn").addEventListener("click", async () => {
+    const record = state.records.find((item) => item.id === document.getElementById("print-record").value);
+    if (!record) {
+      alert("출력할 휴가 기록이 없습니다.");
+      return;
+    }
+    const button = document.getElementById("leave-hwpx-btn");
+    button.disabled = true;
+    try {
+      await downloadLeaveHwpx(record, {
+        reason: document.getElementById("print-reason").value.trim(),
+        transfer: document.getElementById("print-transfer").value.trim(),
+        recvDept: document.getElementById("print-recv-dept").value.trim(),
+        recvName: document.getElementById("print-recv-name").value.trim(),
+        teamNote: document.getElementById("print-team-note").value.trim()
+      });
+    } catch (error) {
+      alert(`한글 파일 생성 실패: ${error.message}`);
+    } finally {
+      button.disabled = false;
+    }
+  });
   document.getElementById("leave-print-btn").addEventListener("click", () => {
     const record = state.records.find((item) => item.id === document.getElementById("print-record").value);
     if (!record) {
@@ -3282,14 +3321,15 @@ function printLeaveApplication(record, options = {}) {
   const employee = employeeById(record.empId);
   const year = Number((record.date || "").slice(0, 4)) || ui.currentYear;
   const summary = employeeSummary(record.empId, year);
-  const usedDays = leaveDelta(record.type);
+  const group = leaveRecordGroup(record);
+  const usedDays = group.reduce((sum, item) => sum + leaveDelta(item.type), 0);
   const printWindow = window.open("", "_blank", "width=900,height=1100");
   if (!printWindow) {
     alert("팝업이 차단되었습니다. 브라우저 팝업 허용 후 다시 시도하세요.");
     return;
   }
   const today = formatDateKey(new Date());
-  const periodText = leaveApplicationPeriodText(record);
+  const periodText = leaveGroupPeriodText(group);
   printWindow.document.write(`
     <!doctype html>
     <html lang="ko">
@@ -3357,17 +3397,160 @@ function leaveApplicationPeriodText(record) {
   return dayText;
 }
 
+// 여러 날을 한 번에 등록한 휴가는 groupId로 묶여 있다. 신청서는 묶음 단위로 한 장.
+function leaveRecordGroup(record) {
+  if (!record.groupId) return [record];
+  return state.records
+    .filter((item) => item.groupId === record.groupId)
+    .sort((left, right) => left.date.localeCompare(right.date));
+}
+
+function leaveOrderKey(record) {
+  return record.appliedDate || record.date;
+}
+
+// 신청 순서대로 이 묶음까지 쓰고 남은 일수 (신청서에 인쇄되는 값과 같게 계산)
+function leaveRemainAfter(group) {
+  const first = group[0];
+  const year = Number(first.date.slice(0, 4));
+  const total = getTotal(first.empId, year);
+  const ids = new Set(group.map((item) => item.id));
+  const key = leaveOrderKey(first);
+  const used = state.records
+    .filter((item) => item.empId === first.empId && item.date.startsWith(String(year)))
+    .filter((item) => ids.has(item.id) || leaveOrderKey(item) < key || (leaveOrderKey(item) === key && item.date <= first.date))
+    .reduce((sum, item) => sum + leaveDelta(item.type), 0);
+  return { total, remain: round(total - used) };
+}
+
+function leaveGroupPeriodText(group) {
+  if (group.length === 1) return leaveApplicationPeriodText(group[0]);
+  const format = (key) => {
+    const date = new Date(`${key}T12:00:00`);
+    const weekday = ["일", "월", "화", "수", "목", "금", "토"][date.getDay()];
+    return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일(${weekday}요일)`;
+  };
+  return `${format(group[0].date)} ~ ${format(group[group.length - 1].date)}`;
+}
+
+let jsZipPromise = null;
+async function loadJsZip() {
+  if (window.JSZip) return;
+  if (!jsZipPromise) {
+    jsZipPromise = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js";
+      script.async = true;
+      script.onload = resolve;
+      script.onerror = () => {
+        jsZipPromise = null;
+        reject(new Error("JSZip을 불러오지 못했습니다. 네트워크 연결을 확인하세요."));
+      };
+      document.head.appendChild(script);
+    });
+  }
+  await jsZipPromise;
+}
+
+function leaveNum(value) {
+  return String(Math.round(Number(value || 0) * 100) / 100);
+}
+
+async function buildLeaveHwpxBlob(tokens) {
+  await loadJsZip();
+  const response = await fetch("./templates/leave-application.hwpx", { cache: "no-store" });
+  if (!response.ok) throw new Error(`양식 파일을 불러오지 못했습니다 (${response.status})`);
+  const zip = await window.JSZip.loadAsync(await response.arrayBuffer());
+  let xml = await zip.file("Contents/section0.xml").async("string");
+  Object.entries(tokens).forEach(([key, value]) => {
+    xml = xml.split(`{{${key}}}`).join(escapeHtml(value ?? ""));
+  });
+  zip.file("Contents/section0.xml", xml);
+  // hwpx는 mimetype을 압축하지 않은 첫 항목으로 두어야 한글에서 열린다.
+  zip.file("mimetype", await zip.file("mimetype").async("string"), { compression: "STORE" });
+  Object.keys(zip.files).forEach((path) => {
+    if (zip.files[path].dir) delete zip.files[path];
+  });
+  return zip.generateAsync({ type: "blob", compression: "DEFLATE" });
+}
+
+async function downloadLeaveHwpx(record, options = {}) {
+  const group = leaveRecordGroup(record);
+  const first = group[0];
+  const employee = employeeById(first.empId);
+  const useDays = group.reduce((sum, item) => sum + leaveDelta(item.type), 0);
+  const { total, remain } = leaveRemainAfter(group);
+  const docDate = new Date(`${first.appliedDate || formatDateKey(new Date())}T12:00:00`);
+  const blob = await buildLeaveHwpxBlob({
+    NAME: employee?.name || "",
+    DEPT: employee?.dept || "",
+    POSITION: employee?.role || "",
+    DOC_DATE: `${docDate.getFullYear()}.${docDate.getMonth() + 1}.${docDate.getDate()}`,
+    GRANTED: leaveNum(total),
+    USE_DAYS: leaveNum(useDays),
+    REMAIN: leaveNum(remain),
+    PERIOD: leaveGroupPeriodText(group),
+    REASON: options.reason || first.memo || "개인 사유",
+    HANDOVER: options.transfer || "",
+    RECV_DEPT: options.recvDept || "",
+    RECV_NAME: options.recvName || "",
+    APPR_TEAM: options.teamNote || "",
+    APPR2_TEAM: options.teamNote || ""
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `연차유급휴가신청서_${employee?.name || "직원"}_${first.date}_${first.type}.hwpx`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// 시작~종료 사이 날짜 목록. skipOff면 주말과 공휴일(대체공휴일 포함)을 뺀다.
+function expandRecordDates(start, end, skipOff) {
+  const dates = [];
+  const cursor = new Date(`${start}T12:00:00`);
+  const last = new Date(`${end}T12:00:00`);
+  while (cursor <= last && dates.length < 366) {
+    const key = formatDateKey(cursor);
+    const day = cursor.getDay();
+    if (!skipOff || (day !== 0 && day !== 6 && !HOLIDAYS[key] && !SUBSTITUTE_HOLIDAYS.has(key))) dates.push(key);
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return dates;
+}
+
 function saveRecordFromModal() {
   const empId = document.getElementById("record-emp").value;
   const date = document.getElementById("record-date").value;
   const type = document.getElementById("record-type").value;
   const memo = document.getElementById("record-memo").value.trim();
+  const end = document.getElementById("record-end").value || date;
+  const skipOff = document.getElementById("record-skip-off").checked;
+  const appliedDate = document.getElementById("record-applied").value;
   if (!empId || !date) {
     alert("직원과 날짜를 입력하세요.");
     return;
   }
-  state.records.push({ id: `r_${Date.now()}`, empId, date, type, memo });
-  touchState(`휴가 기록 추가 ${date}`);
+  if (end < date) {
+    alert("종료일이 시작일보다 빠릅니다.");
+    return;
+  }
+  const dates = expandRecordDates(date, end, skipOff && end !== date);
+  if (!dates.length) {
+    alert("선택한 기간에 등록할 근무일이 없습니다.");
+    return;
+  }
+  const stamp = Date.now();
+  const groupId = dates.length > 1 ? `g_${stamp}` : "";
+  dates.forEach((day, index) => {
+    const record = { id: `r_${stamp}_${index}`, empId, date: day, type, memo };
+    if (groupId) record.groupId = groupId;
+    if (appliedDate) record.appliedDate = appliedDate;
+    state.records.push(record);
+  });
+  touchState(dates.length > 1 ? `휴가 기록 추가 ${date} ~ ${end} (${dates.length}일)` : `휴가 기록 추가 ${date}`);
   closeModal();
   renderAll();
 }
@@ -5130,3 +5313,19 @@ function readJsonStorage(key) {
     return null;
   }
 }
+
+// 모바일: 사이드바 메뉴 여닫기. 메뉴를 고르면 자동으로 닫는다.
+(function setupSidebarToggle() {
+  const toggle = document.getElementById("sidebar-toggle");
+  const sidebar = document.querySelector(".sidebar");
+  if (!toggle || !sidebar) return;
+  const setOpen = (open) => {
+    sidebar.classList.toggle("open", open);
+    toggle.setAttribute("aria-expanded", String(open));
+    toggle.textContent = open ? "닫기" : "메뉴";
+  };
+  toggle.addEventListener("click", () => setOpen(!sidebar.classList.contains("open")));
+  document.getElementById("nav-list")?.addEventListener("click", (event) => {
+    if (event.target.closest("[data-view]")) setOpen(false);
+  });
+})();
