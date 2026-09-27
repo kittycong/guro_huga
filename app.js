@@ -5447,6 +5447,10 @@ function ensureLoginOverlay() {
         <input id="login-id" class="field" type="text" autocomplete="username" autocapitalize="off" spellcheck="false" required>
         <label class="field-label" for="login-password">비밀번호</label>
         <input id="login-password" class="field" type="password" autocomplete="current-password" required>
+        <div id="login-password-2-wrap" class="login-confirm hidden">
+          <label class="field-label" for="login-password-2">비밀번호 확인</label>
+          <input id="login-password-2" class="field" type="password" autocomplete="new-password">
+        </div>
         <div id="login-message" class="login-message" role="alert"></div>
         <button id="login-submit" class="btn primary" type="submit">로그인</button>
         <button id="login-signout" class="btn ghost hidden" type="button">다른 계정으로 로그인</button>
@@ -5475,16 +5479,54 @@ function hideLoginScreen() {
   document.getElementById("login-overlay")?.classList.add("hidden");
 }
 
-function waitForLogin(client) {
+// 관리자가 한 명도 없으면 로그인 화면을 '첫 관리자 만들기'로 바꾼다.
+async function needsFirstAdmin(client) {
+  try {
+    const { data } = await client.functions.invoke("guro-first-admin", { body: { action: "status" } });
+    return !!data?.needsSetup;
+  } catch (_error) {
+    return false;
+  }
+}
+
+function setFirstAdminMode(on) {
+  document.getElementById("login-title").textContent = on ? "첫 관리자 만들기" : "구로센터 휴가";
+  document.querySelector("#login-form .login-sub").textContent = on
+    ? "아직 관리자 계정이 없습니다. 관리자로 쓸 아이디와 비밀번호(8자 이상)를 정하세요. 이 화면은 첫 관리자가 생기면 사라집니다."
+    : "관리자에게 받은 아이디와 비밀번호로 로그인하세요.";
+  document.getElementById("login-password-2-wrap").classList.toggle("hidden", !on);
+  document.getElementById("login-password").setAttribute("autocomplete", on ? "new-password" : "current-password");
+  document.getElementById("login-submit").textContent = on ? "관리자 만들고 로그인" : "로그인";
+}
+
+async function waitForLogin(client) {
   showLoginScreen();
+  const firstAdmin = await needsFirstAdmin(client);
+  setFirstAdminMode(firstAdmin);
   document.getElementById("login-id").focus();
   return new Promise((resolve) => {
     document.getElementById("login-form").addEventListener("submit", async (event) => {
       event.preventDefault();
       const button = document.getElementById("login-submit");
       const message = document.getElementById("login-message");
-      button.disabled = true;
       message.textContent = "";
+      if (firstAdmin) {
+        const loginId = document.getElementById("login-id").value.trim().toLowerCase();
+        const password = document.getElementById("login-password").value;
+        if (!/^[a-z0-9._-]{3,30}$/.test(loginId)) { message.textContent = "아이디는 영문 소문자·숫자·._- 3~30자로 정하세요."; return; }
+        if (password.length < 8) { message.textContent = "비밀번호는 8자 이상으로 정하세요."; return; }
+        if (password !== document.getElementById("login-password-2").value) { message.textContent = "두 비밀번호가 다릅니다."; return; }
+        button.disabled = true;
+        const { error: setupError } = await client.functions.invoke("guro-first-admin", { body: { loginId, password } });
+        if (setupError) {
+          button.disabled = false;
+          let detail = setupError.message;
+          try { detail = (await setupError.context?.json())?.error || detail; } catch (_error) { /* 기본 메시지 */ }
+          message.textContent = `만들기 실패: ${detail}`;
+          return;
+        }
+      }
+      button.disabled = true;
       const { data, error } = await client.auth.signInWithPassword({
         email: loginIdToEmail(document.getElementById("login-id").value),
         password: document.getElementById("login-password").value
